@@ -36,7 +36,7 @@ public class DocumentService {
             WHERE d.status='ACTIVE'
               AND (d.classification='PUBLIC' OR d.owner_id=actor.id
                    OR EXISTS (SELECT 1 FROM access_grants g
-                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id
+                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id AND g.permission='READ'
                        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > now())))
             ORDER BY d.created_at DESC
             """, username);
