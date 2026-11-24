@@ -115,6 +115,10 @@ git status
 
 Before switching branches, commit or safely stash your own changes. Do not use `git reset --hard` or delete untracked files just to make a branch switch succeed; inspect `git status` first.
 
+## Local hackathon stack (recommended)
+
+For the quickest complete local setup, use the one-command Docker Compose stack in [docs/LOCAL-HACKATHON-RUNBOOK.md](docs/LOCAL-HACKATHON-RUNBOOK.md). It starts PostgreSQL, the backend and frontend together at **http://localhost:5173** using synthetic demo accounts. This mode is for localhost-only hackathon demonstrations, not internet exposure.
+
 ## Local development (Kali Linux / Linux / macOS)
 
 This is the shortest supported local setup. Use synthetic data and a disposable local database only.
