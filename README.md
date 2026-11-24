@@ -4,7 +4,7 @@
 
 TRUSTLENS is a hackathon prototype for secure campus document exchange. It combines server-side sessions, deny-by-default authorization, role and contextual checks, expiring/revocable grants, protected file delivery, explainable decisions, and hash-linked audit events.
 
-> **Status:** Hackathon prototype. The core document-sharing flow now includes private uploads and a server-mediated download gateway. It is not yet production-ready or independently security-certified. Full policy authoring/publication, PIV, historical replay, independent audit checkpoints, malware scanning, production identity provisioning, and operational hardening remain incomplete.
+> **Status:** Hackathon prototype. The core document-sharing flow includes private uploads and a server-mediated download gateway. It is not production-ready or independently security-certified. Full policy authoring/publication, PIV, historical replay, independent audit checkpoints, malware scanning, production identity provisioning, and operational hardening remain incomplete.
 
 ## Challenge coverage
 
@@ -41,97 +41,188 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 
 ## Repository layout
 
-- backend/ — Java 21, Spring Boot, Spring Security, PostgreSQL
-- frontend/ — React, TypeScript, Vite
-- database/ — database notes
-- api-contract/ — OpenAPI contract
-- docs/ — architecture, threat model, setup, deployment, roadmap
-- security-tests/ — security test plan
+- `backend/` — Java 21, Spring Boot, Spring Security, PostgreSQL
+- `frontend/` — React, TypeScript, Vite
+- `database/` — database notes
+- `api-contract/` — OpenAPI contract
+- `docs/` — architecture, threat model, setup, deployment, roadmap
+- `security-tests/` — security test plan
 
-## Local development
+## Local development (Kali Linux / Linux / macOS)
 
-Prerequisites: Git, Java 21, Maven, Node.js 20+, npm, Docker Engine and Docker Compose.
+This is the shortest supported local setup. Use synthetic data and a disposable local database only.
 
-1. Clone the repository and create local environment configuration:
+### 1. Install prerequisites
 
-~~~bash
+- Git
+- Java 21
+- Maven
+- Node.js 20+ and npm
+- Docker Engine with either the Compose v2 plugin (`docker compose`) or standalone Compose (`docker-compose`)
+
+Check the tools:
+
+```bash
+java -version
+mvn -version
+node --version
+npm --version
+docker --version
+docker compose version || docker-compose version
+```
+
+### 2. Clone and configure the project
+
+```bash
 git clone https://github.com/vaibhav6395/TRUSTLENSE.git
 cd TRUSTLENSE
 cp .env.example .env
-~~~
+```
 
-Edit .env and replace every sample password with unique local values. Never commit .env.
+Edit `.env`. Set `POSTGRES_PASSWORD` and set `DB_PASSWORD` to the **same value**. Replace both demo password placeholders with different unique passwords of at least 14 characters. Keep `.env` private; never commit it.
 
-2. Start PostgreSQL:
+For local HTTP development, `COOKIE_SECURE=false` is required. The example file already sets this and allows the Vite origin `http://localhost:5173`.
 
-~~~bash
+### 3. Start PostgreSQL
+
+Use the Compose command available on your system:
+
+```bash
 docker compose up -d db
 docker compose ps
-~~~
+```
 
-On systems where the Compose v2 plugin is not installed but the standalone command is available, use docker-compose up -d db and docker-compose ps.
+If your installation uses the standalone Compose executable instead:
 
-3. Start the backend with synthetic demo data. The two demo passwords must be set in your local environment and must each be at least 14 characters:
+```bash
+docker-compose up -d db
+docker-compose ps
+```
 
-Kali/Linux/macOS:
+Wait until the database container reports healthy before starting the backend.
 
-~~~bash
-cd backend
+**Without Docker:** install and start PostgreSQL locally, then create a database named `trustlens` and a login role named `trustlens`. Set `DB_PASSWORD` in `.env` to that role's password. The database URL defaults to `jdbc:postgresql://localhost:5432/trustlens`.
+
+### 4. Start the backend
+
+Open terminal 1 from the repository root:
+
+```bash
+cd TRUSTLENSE
 set -a
-source ../.env
+source .env
 set +a
+cd backend
 DEMO_DATA_ENABLED=true COOKIE_SECURE=false mvn spring-boot:run
-~~~
+```
 
-PowerShell:
+Keep this terminal open. On first startup, Flyway applies the database migrations and the demo initializer creates the `demo` and `admin` users using the passwords in `.env`.
 
-~~~powershell
+If your Maven installation does not resolve the Spring Boot plugin using the short goal, run:
+
+```bash
+mvn org.springframework.boot:spring-boot-maven-plugin:3.4.4:run
+```
+
+### 5. Start the frontend
+
+Open terminal 2:
+
+```bash
+cd TRUSTLENSE/frontend
+npm install
+npm run dev
+```
+
+Keep this terminal open. Vite serves the app at **http://localhost:5173** and proxies `/api` requests to the backend at `http://localhost:8080`.
+
+### 6. Verify the services and sign in
+
+Open terminal 3:
+
+```bash
+curl -i http://localhost:8080/api/v1/health
+curl -i http://localhost:5173/api/v1/health
+```
+
+Both should return HTTP `200` with service status `UP`. Then open **http://localhost:5173**.
+
+| Demo account | Username | Password |
+|---|---|---|
+| Faculty | `demo` | Value configured in `DEMO_FACULTY_PASSWORD` |
+| Security administrator | `admin` | Value configured in `DEMO_ADMIN_PASSWORD` |
+
+There are no built-in or shared demo passwords. Do not paste passwords into terminal commands as standalone input; enter them only in the application or the relevant protected configuration.
+
+> **Existing database note:** Demo seeding does not reset the password of a username that already exists. If you change a demo password in `.env` after the account has already been created, the existing database password remains unchanged. For a disposable local demo database, you can remove the Compose volume and recreate it, but this permanently deletes the local database:
+>
+> ```bash
+> docker compose down -v
+> docker compose up -d db
+> ```
+>
+> Use `docker-compose` instead of `docker compose` if that is the command installed on your system. Never run the volume-removal command on data you need.
+
+### Troubleshooting
+
+- **`curl: (7) Failed to connect to localhost port 5173`:** the frontend is not running. Start it from `frontend/` with `npm run dev` and keep that terminal open.
+- **Port 8080 connection refused:** start the backend and check its terminal for startup errors.
+- **Frontend API request fails:** confirm `frontend/vite.config.ts` contains the `/api` proxy to `http://localhost:8080`, then restart Vite.
+- **HTTP 401 on login:** verify the username and configured password. Changing the environment variable does not reset an already-created user's password.
+- **HTTP 403:** check that the browser is using the Vite origin, that `COOKIE_SECURE=false` is set for local HTTP, and that the CSRF bootstrap request succeeds. Do not disable CSRF protection.
+- **Docker Compose command not found:** try `docker-compose` if the standalone executable is installed, or install the Compose plugin for Docker Engine.
+
+## Windows (PowerShell)
+
+The commands below assume PostgreSQL is already running locally and the database/user have been created. Configure the variables in your PowerShell session before starting the backend:
+
+```powershell
 cd backend
 $env:DB_URL = "jdbc:postgresql://localhost:5432/trustlens"
 $env:DB_USERNAME = "trustlens"
-$env:DB_PASSWORD = "the-same-value-as-POSTGRES_PASSWORD-in-your-local-env-file"
+$env:DB_PASSWORD = "your-local-database-password"
 $env:DEMO_DATA_ENABLED = "true"
 $env:DEMO_FACULTY_PASSWORD = "your-unique-password-at-least-14-characters"
 $env:DEMO_ADMIN_PASSWORD = "a-different-unique-password-at-least-14-characters"
 $env:COOKIE_SECURE = "false"
 mvn spring-boot:run
-~~~
+```
 
-4. In another terminal:
+In a second PowerShell window:
 
-~~~bash
+```powershell
 cd frontend
 npm install
 npm run dev
-~~~
+```
 
-Open http://localhost:5173. The demo usernames are demo and admin; their passwords are the values you configured in DEMO_FACULTY_PASSWORD and DEMO_ADMIN_PASSWORD. There is no built-in shared demo password.
+Open http://localhost:5173.
 
 Demo seeding is disabled by default. Use only a disposable local database and synthetic data. Never enable demo seeding in a shared or deployed environment.
 
 ## API highlights
 
-- POST /api/v1/documents — authenticated multipart upload (title, classification, file).
-- GET /api/v1/documents/{id} — metadata read with a fresh READ decision.
-- GET /api/v1/documents/{id}/content — protected attachment download with a fresh DOWNLOAD decision.
-- POST /api/v1/grants — SECURITY_ADMIN creates a READ or DOWNLOAD grant, optionally with ISO-8601 expiry.
-- POST /api/v1/grants/{id}/revoke — SECURITY_ADMIN revokes a grant.
-- GET /api/v1/decisions and GET /api/v1/audit-events — inspectable security history.
+- `POST /api/v1/documents` — authenticated multipart upload (title, classification, file).
+- `GET /api/v1/documents/{id}` — metadata read with a fresh READ decision.
+- `GET /api/v1/documents/{id}/content` — protected attachment download with a fresh DOWNLOAD decision.
+- `POST /api/v1/grants` — SECURITY_ADMIN creates a READ or DOWNLOAD grant, optionally with ISO-8601 expiry.
+- `POST /api/v1/grants/{id}/revoke` — SECURITY_ADMIN revokes a grant.
+- `GET /api/v1/decisions` and `GET /api/v1/audit-events` — inspectable security history.
 
 All state-changing API calls require the session's CSRF token. Do not create public object-storage URLs or bypass the application download gateway.
 
 ## Deployment
 
-See docs/DEPLOYMENT.md. The included production Compose file is a deployment starting point, not a hosted application: you must provision a Linux host, domain, HTTPS reverse proxy, secrets and backups. Keep PostgreSQL private, set COOKIE_SECURE=true, set the exact PUBLIC_APP_ORIGIN, and leave demo seeding disabled.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The included production Compose file is a deployment starting point, not a hosted application: you must provision a Linux host, domain, HTTPS reverse proxy, secrets and backups. Keep PostgreSQL private, set `COOKIE_SECURE=true`, set the exact `PUBLIC_APP_ORIGIN`, and leave demo seeding disabled.
 
 ## Verification
 
-~~~bash
+```bash
 cd backend && mvn test
 cd ../frontend && npm install && npm test && npm run build && npm audit --audit-level=high
-~~~
+```
 
-A successful build does not establish production security. Review docs/threat-model.md and security-tests/README.md.
+A successful build does not establish production security. Review [docs/threat-model.md](docs/threat-model.md) and [security-tests/README.md](security-tests/README.md).
 
 ## License
 
