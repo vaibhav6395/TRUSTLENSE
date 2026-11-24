@@ -106,6 +106,16 @@ public class DocumentService {
         Map<String, Object> actor = jdbc.queryForMap(
             "SELECT id, department_code FROM app_users WHERE username=? AND enabled=TRUE", username);
         UUID ownerId = (UUID) actor.get("id");
+        if ("PUBLIC".equals(classification) || "RESTRICTED".equals(classification)) {
+            Boolean admin = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
+                """, Boolean.class, ownerId);
+            if (!Boolean.TRUE.equals(admin)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only SECURITY_ADMIN may publish PUBLIC or RESTRICTED documents");
+            }
+        }
         DocumentFileStorage.StoredFile stored = storage.store(file);
         UUID documentId = UUID.randomUUID();
         try {
@@ -158,18 +168,28 @@ public class DocumentService {
              WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
             """, Boolean.class, actorId));
         String permission = "DOWNLOAD".equals(action) ? "DOWNLOAD" : "READ";
-        Boolean grant = jdbc.queryForObject("""
-            SELECT EXISTS(SELECT 1 FROM access_grants
-             WHERE document_id=? AND subject_user_id=? AND permission=?
-               AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
-            """, Boolean.class, documentId, actorId, permission);
+        Map<String, Object> grantState = jdbc.queryForMap("""
+            SELECT
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND expires_at <= now()) AS expired,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NOT NULL) AS revoked
+            """, documentId, actorId, permission, documentId, actorId, permission,
+                 documentId, actorId, permission);
+        boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
+        boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
+        boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
         boolean departmentMatch = actorDept != null && actorDept.equals(docDept);
         PolicyEvaluator.Result policyResult = PolicyEvaluator.evaluate(new PolicyEvaluator.Facts(
-            enabled, activeDocument, owner, publicRead, Boolean.TRUE.equals(grant),
+            enabled, activeDocument, owner, publicRead, activeGrant,
             securityAdmin && departmentMatch && "READ".equals(action)
         ));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
+        if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
+        else if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
         String explanation = allowed ? "The current server-side policy permits this action (" + reason + ")."
             : "Access denied because no active policy condition permits this action (" + reason + ").";
         UUID decisionId = UUID.randomUUID();
@@ -180,7 +200,9 @@ public class DocumentService {
             "accountEnabled", enabled,
             "documentActive", activeDocument,
             "owner", owner,
-            "activeGrant", Boolean.TRUE.equals(grant),
+            "activeGrant", activeGrant,
+            "grantExpired", expiredGrant,
+            "grantRevoked", revokedGrant,
             "action", action
         ));
         jdbc.update("""
