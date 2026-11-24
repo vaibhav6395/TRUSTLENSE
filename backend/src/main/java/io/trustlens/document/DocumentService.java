@@ -40,7 +40,7 @@ public class DocumentService {
             FROM documents d
             JOIN app_users u ON u.id=d.owner_id
             JOIN app_users actor ON actor.username=?
-            WHERE d.status='ACTIVE'
+            WHERE actor.enabled=TRUE AND d.status='ACTIVE'
               AND (d.owner_id=actor.id
                    OR (d.classification='PUBLIC')
                    OR EXISTS (SELECT 1 FROM access_grants g
@@ -79,12 +79,20 @@ public class DocumentService {
             FROM documents WHERE id=? AND status='ACTIVE'
             """, documentId);
         String key = (String) doc.get("storage_key");
-        Path path = storage.resolve(key);
+        String contentType = (String) doc.get("content_type");
+        Object sizeValue = doc.get("size_bytes");
+        if (contentType == null || sizeValue == null || key == null || key.startsWith("demo://")) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This synthetic document has no uploaded file content");
+        }
+        Path path;
+        try { path = storage.resolve(key); }
+        catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
+        }
         if (!java.nio.file.Files.isRegularFile(path)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
         }
-        return new DownloadFile(path, (String) doc.get("title"),
-            (String) doc.get("content_type"), ((Number) doc.get("size_bytes")).longValue());
+        return new DownloadFile(path, (String) doc.get("title"), contentType, ((Number) sizeValue).longValue());
     }
 
     @Transactional
