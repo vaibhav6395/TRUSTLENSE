@@ -41,7 +41,7 @@ public class DocumentService {
             """, username);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> read(UUID documentId, String username, String action) {
         Map<String, Object> decision = evaluateAndRecord(documentId, username, action);
         if (!Boolean.TRUE.equals(decision.get("allowed"))) {
