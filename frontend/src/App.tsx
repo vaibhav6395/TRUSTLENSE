@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import {
   apiGet, apiPost, clearCsrf, type AuditItem, type CurrentUser,
-  type DecisionItem, type DocumentItem, type Health
+  type DecisionItem, type DocumentItem, type GrantItem, type Health
 } from './api';
 
 type Page = 'Overview' | 'Documents' | 'People & roles' | 'Policy sandbox' | 'Decisions' | 'Audit history';
@@ -103,9 +103,30 @@ function AuditHistory({ audit }: { audit: AuditItem[] }) {
     {audit.length===0 && <div className="empty">No audit events recorded yet.</div>}
   </>;
 }
-function People() {
-  return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Administration roadmap"/>
-    <div className="notice"><CircleHelp size={16}/> Authentication is backed by PostgreSQL users and roles. Full user/role administration endpoints and UI are not implemented in this vertical slice.</div>
+function People({ user, onChanged }: { user: CurrentUser; onChanged: () => Promise<void> }) {
+  const [grants,setGrants] = useState<GrantItem[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  const isAdmin = user.authorities.includes('ROLE_SECURITY_ADMIN');
+  async function load() {
+    try { setGrants(await apiGet<GrantItem[]>('/api/v1/grants')); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load grants'); }
+  }
+  useEffect(() => { if (isAdmin) void load(); }, [isAdmin]);
+  async function revoke(id: string) {
+    setBusy(id); setError('');
+    try { await apiPost(`/api/v1/grants/${id}/revoke`); await load(); await onChanged(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Revocation failed'); }
+    finally { setBusy(''); }
+  }
+  return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
+    {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
+    {error && <div className="connection-notice">{error}</div>}
+    {isAdmin && <><div className="notice"><CircleHelp size={16}/> Revoking a grant changes its active state in PostgreSQL. The next protected request is evaluated against the updated state.</div>
+      <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>SUBJECT</th><th>PERMISSION</th><th>STATUS</th><th/></tr></thead><tbody>
+        {grants.map(g=><tr key={g.id}><td>{g.document}</td><td>{g.subject}</td><td>{g.permission}</td><td><Badge tone={g.revokedAt?'red':'green'}>{g.revokedAt?'REVOKED':'ACTIVE'}</Badge></td><td>{!g.revokedAt && <button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke grant'}</button>}</td></tr>)}
+      </tbody></table>{grants.length===0 && <div className="empty">No grants found.</div>}</div>
+    </>}
   </>;
 }
 
@@ -171,7 +192,7 @@ export default function App() {
       {message && <div className="connection-notice"><Check size={15}/>{message}</div>}
       {page==='Overview' && <Overview health={health} documents={documents} decisions={decisions} audit={audit} setPage={setPage}/>}
       {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}/>}
-      {page==='People & roles' && <People/>}
+      {page==='People & roles' && <People user={user} onChanged={refreshData}/>}
       {page==='Policy sandbox' && <PolicySandbox/>}
       {page==='Decisions' && <Decisions decisions={decisions}/>}
       {page==='Audit history' && <AuditHistory audit={audit}/>}
