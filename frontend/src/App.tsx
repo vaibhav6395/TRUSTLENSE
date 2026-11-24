@@ -92,6 +92,11 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload }: {
     catch (err) { setError(err instanceof Error ? err.message : 'Upload failed'); }
     finally { setUploading(false); }
   }
+  async function download(doc: DocumentItem) {
+    setError('');
+    try { await onDownload(doc); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Download failed'); }
+  }
   return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Visible under your current identity"/>
     <form className="toolbar" onSubmit={submitUpload}>
       <input aria-label="Document title" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Document title" required maxLength={240}/>
@@ -105,7 +110,7 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload }: {
     {error && <div className="connection-notice">{error}</div>}
     <div className="toolbar"><input className="search-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search visible documents"/></div>
     <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>OWNER</th><th>DEPARTMENT</th><th>CLASSIFICATION</th><th>ACCESS</th></tr></thead><tbody>
-      {filtered.map(d => <tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.id}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification === 'PUBLIC' ? 'green' : d.classification === 'RESTRICTED' ? 'red' : 'amber'}>{d.classification}</Badge></td><td><div className="toolbar"><button className="secondary" disabled={busyId === d.id} onClick={() => onRead(d)}>{busyId === d.id ? 'Checking…' : 'Request read'}</button><button className="secondary" onClick={() => void onDownload(d)}>Download</button></div></td></tr>)}
+      {filtered.map(d => <tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.id}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification === 'PUBLIC' ? 'green' : d.classification === 'RESTRICTED' ? 'red' : 'amber'}>{d.classification}</Badge></td><td><div className="toolbar"><button className="secondary" disabled={busyId === d.id} onClick={() => onRead(d)}>{busyId === d.id ? 'Checking…' : 'Request read'}</button><button className="secondary" onClick={() => void download(d)}>Download</button></div></td></tr>)}
     </tbody></table>{filtered.length===0 && <div className="empty">No visible documents found.</div>}</div>
     <p className="footnote"><LockKeyhole size={14}/> Every read and download is checked by the backend. Old application URLs do not bypass current grant checks.</p>
   </>;
