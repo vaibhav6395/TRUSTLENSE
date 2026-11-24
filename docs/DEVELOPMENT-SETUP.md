@@ -4,7 +4,7 @@ This guide installs the tools required by the current TRUSTLENS full-stack verti
 
 ## Verified project requirements
 
-Checked against `backend/pom.xml`, `frontend/package.json`, and `docker-compose.yml` on `feature/full-stack-vertical-slice`:
+Checked against `backend/pom.xml`, `frontend/package.json`, and `docker-compose.yml` on `main`:
 
 | Tool | Requirement | Why |
 |---|---|---|
@@ -170,14 +170,14 @@ Official references:
 Clone the branch that currently contains the full-stack work:
 
 ```bash
-git clone --single-branch --branch feature/full-stack-vertical-slice git@github.com:vaibhav6395/TRUSTLENSE.git
+git clone --single-branch --branch main git@github.com:vaibhav6395/TRUSTLENSE.git
 cd TRUSTLENSE
 ```
 
 For HTTPS instead of SSH:
 
 ```bash
-git clone --single-branch --branch feature/full-stack-vertical-slice https://github.com/vaibhav6395/TRUSTLENSE.git
+git clone --single-branch --branch main https://github.com/vaibhav6395/TRUSTLENSE.git
 ```
 
 For a private repository, authenticate with SSH or a GitHub Personal Access Token. GitHub account passwords are not accepted for HTTPS Git operations.
@@ -186,7 +186,15 @@ For a private repository, authenticate with SSH or a GitHub Personal Access Toke
 
 Run these commands from the repository root.
 
-### 1. Start PostgreSQL
+### 1. Create a local environment file from the template and replace its sample values:
+
+```bash
+cp .env.example .env
+```
+
+The Compose database reads its password from `.env`. Never commit the populated `.env` file.
+
+2. Start PostgreSQL
 
 Kali/Linux:
 
@@ -202,13 +210,13 @@ docker compose up -d db
 docker compose ps
 ```
 
-### 2. Start the backend
+### 3. Start the backend
 
 Kali/Linux:
 
 ```bash
 cd backend
-DEMO_DATA_ENABLED=true mvn spring-boot:run
+DEMO_DATA_ENABLED=true DEMO_FACULTY_PASSWORD='use-a-unique-password-at-least-14-characters' DEMO_ADMIN_PASSWORD='use-a-different-unique-password-at-least-14-characters' COOKIE_SECURE=false mvn spring-boot:run
 ```
 
 Windows PowerShell:
@@ -216,10 +224,13 @@ Windows PowerShell:
 ```powershell
 cd backend
 $env:DEMO_DATA_ENABLED = "true"
+$env:DEMO_FACULTY_PASSWORD = "use-a-unique-password-at-least-14-characters"
+$env:DEMO_ADMIN_PASSWORD = "use-a-different-unique-password-at-least-14-characters"
+$env:COOKIE_SECURE = "false"
 mvn spring-boot:run
 ```
 
-### 3. Start the frontend
+### 4. Start the frontend
 
 Open a second terminal at the repository root.
 
@@ -231,7 +242,7 @@ npm run dev
 
 Open http://localhost:5173.
 
-The local demo data is synthetic and intended only for a disposable development database. Do not enable demo seeding in a deployed or shared environment. Never commit real credentials, tokens, or populated `.env` files.
+The local demo data is synthetic and intended only for a disposable development database. Both demo passwords must be supplied as environment variables and must be at least 14 characters. Demo seeding is disabled by default; do not enable it in a deployed or shared environment. Never commit real credentials, tokens, or populated `.env` files.
 
 To stop the database container:
 
