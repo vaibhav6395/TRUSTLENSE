@@ -67,3 +67,8 @@ export type AuditItem = {
   id: string; sequence: number; eventType: string; payload: unknown;
   previousHash: string | null; eventHash: string; occurredAt: string; actor: string;
 };
+
+export type GrantItem = {
+  id: string; document: string; subject: string; permission: string;
+  expiresAt: string | null; revokedAt: string | null;
+};
