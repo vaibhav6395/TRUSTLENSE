@@ -41,14 +41,11 @@ describe('TRUSTLENS API client', () => {
     });
 
     expect(result.authenticated).toBe(true);
-    expect(fetchMock).toHaveBeenNthCalledWith(2,
-      'http://localhost:8080/api/v1/auth/login',
-      expect.objectContaining({
-        method: 'POST',
-        credentials: 'include',
-        headers: expect.objectContaining({ 'X-XSRF-TOKEN': 'csrf-test-token' }),
-      }),
-    );
+    const [url, options] = fetchMock.mock.calls[1];
+    expect(url).toBe('http://localhost:8080/api/v1/auth/login');
+    expect(options?.method).toBe('POST');
+    expect(options?.credentials).toBe('include');
+    expect((options?.headers as Headers).get('X-XSRF-TOKEN')).toBe('csrf-test-token');
   });
 
   it('surfaces non-success HTTP responses as ApiError', async () => {
