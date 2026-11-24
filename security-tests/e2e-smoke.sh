@@ -40,14 +40,27 @@ test -n "$DOCUMENT_ID" && test "$DOCUMENT_ID" != "null"
 GRANT_EXPIRY="$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%SZ')"
 GRANT_JSON="$(jq -n --arg id "$DOCUMENT_ID" --arg expiry "$GRANT_EXPIRY" \
   '{documentId:$id,subjectUsername:"demo",permission:"DOWNLOAD",expiresAt:$expiry}')"
-GRANT_RESPONSE="$(curl --fail --silent --show-error -b "$ADMIN_JAR" -c "$ADMIN_JAR" \
-  -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $ADMIN_CSRF" \
-  -d "$GRANT_JSON" "$BASE_URL/api/v1/grants")"
-GRANT_ID="$(jq -r '.grantId' <<<"$GRANT_RESPONSE")"
-test -n "$GRANT_ID" && test "$GRANT_ID" != "null"
+create_grant() {
+  local permission="$1"
+  local payload response
+  payload="$(jq -n --arg id "$DOCUMENT_ID" --arg expiry "$GRANT_EXPIRY" --arg permission "$permission" \
+    '{documentId:$id,subjectUsername:"demo",permission:$permission,expiresAt:$expiry}')"
+  response="$(curl --fail --silent --show-error -b "$ADMIN_JAR" -c "$ADMIN_JAR" \
+    -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $ADMIN_CSRF" \
+    -d "$payload" "$BASE_URL/api/v1/grants")"
+  jq -r '.grantId' <<<"$response"
+}
+READ_GRANT_ID="$(create_grant READ)"
+DOWNLOAD_GRANT_ID="$(create_grant DOWNLOAD)"
+test -n "$READ_GRANT_ID" && test "$READ_GRANT_ID" != "null"
+test -n "$DOWNLOAD_GRANT_ID" && test "$DOWNLOAD_GRANT_ID" != "null"
 
 DEMO_CSRF="$(csrf_token "$DEMO_JAR")"
 login "$DEMO_JAR" demo "$DEMO_FACULTY_PASSWORD" "$DEMO_CSRF"
+
+INITIAL_READ_STATUS="$(curl --silent --show-error -b "$DEMO_JAR" -o "$TMP_DIR/metadata.json" \
+  -w '%{http_code}' "$BASE_URL/api/v1/documents/$DOCUMENT_ID")"
+test "$INITIAL_READ_STATUS" = "200"
 
 INITIAL_STATUS="$(curl --silent --show-error -b "$DEMO_JAR" -o "$TMP_DIR/allowed.pdf" \
   -w '%{http_code}' "$BASE_URL/api/v1/documents/$DOCUMENT_ID/content")"
@@ -55,7 +68,14 @@ test "$INITIAL_STATUS" = "200"
 
 curl --fail --silent --show-error -b "$ADMIN_JAR" -c "$ADMIN_JAR" \
   -H "X-XSRF-TOKEN: $ADMIN_CSRF" -X POST \
-  "$BASE_URL/api/v1/grants/$GRANT_ID/revoke" | jq -e '.revoked == true' >/dev/null
+  "$BASE_URL/api/v1/grants/$READ_GRANT_ID/revoke" | jq -e '.revoked == true' >/dev/null
+curl --fail --silent --show-error -b "$ADMIN_JAR" -c "$ADMIN_JAR" \
+  -H "X-XSRF-TOKEN: $ADMIN_CSRF" -X POST \
+  "$BASE_URL/api/v1/grants/$DOWNLOAD_GRANT_ID/revoke" | jq -e '.revoked == true' >/dev/null
+
+READ_RETRY_STATUS="$(curl --silent --show-error -b "$DEMO_JAR" -o "$TMP_DIR/denied-read.json" \
+  -w '%{http_code}' "$BASE_URL/api/v1/documents/$DOCUMENT_ID")"
+test "$READ_RETRY_STATUS" = "403"
 
 RETRY_STATUS="$(curl --silent --show-error -b "$DEMO_JAR" -o "$TMP_DIR/denied.txt" \
   -w '%{http_code}' "$BASE_URL/api/v1/documents/$DOCUMENT_ID/content")"
@@ -66,4 +86,4 @@ DECISION="$(curl --fail --silent --show-error -b "$DEMO_JAR" -c "$DEMO_JAR" \
   -d '{"action":"DOWNLOAD"}' "$BASE_URL/api/v1/documents/$DOCUMENT_ID/access-check")"
 jq -e '.allowed == false and .reasonCode == "GRANT_REVOKED"' <<<"$DECISION" >/dev/null
 
-echo "PASS: active session retained, grant revoked, reused download URL returned HTTP 403, API decision recorded GRANT_REVOKED."
+echo "PASS: active session retained; revoked READ and DOWNLOAD grants block metadata API and reused file URL (HTTP 403); denial reason GRANT_REVOKED recorded."
