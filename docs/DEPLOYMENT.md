@@ -4,7 +4,7 @@ TRUSTLENSE currently includes a single-origin container deployment baseline. A C
 
 ## Current status
 
-The repository is **not yet approved for real confidential institutional records**. See [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md) for the phased implementation and outstanding controls. Use synthetic data until institutional security and privacy owners approve deployment.
+The repository is a hackathon prototype, not a production-certified service. See [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md) for the phased implementation and outstanding controls. Use synthetic data until institutional security and privacy owners approve deployment.
 
 ## Target topology
 
@@ -24,10 +24,10 @@ Prerequisites:
 - A strong unique PostgreSQL password stored as a deployment secret.
 - Institution-approved persistent storage and backup locations.
 
-1. Clone the repository:
+1. Clone the branch containing the current deployment baseline. If the changes have been merged to main, you may use main instead.
 
 ```bash
-git clone --single-branch --branch main https://github.com/vaibhav6395/TRUSTLENSE.git
+git clone --single-branch --branch production/phase-1-safety-baseline https://github.com/vaibhav6395/TRUSTLENSE.git
 cd TRUSTLENSE
 ```
 
@@ -40,7 +40,7 @@ export PUBLIC_APP_ORIGIN='https://trustlens.your-institution.example'
 
 Do not commit these values. PUBLIC_APP_ORIGIN must exactly match the public HTTPS origin.
 
-3. Build and start the stack:
+3. Validate and start the stack:
 
 ```bash
 docker compose -f docker-compose.production.yml config
