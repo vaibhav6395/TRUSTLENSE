@@ -2,75 +2,69 @@
 
 **Explainable, continuously enforced access governance for campus document exchange.**
 
-TRUSTLENS combines role- and attribute-based authorization with revocation, policy simulation, explainable access decisions, and tamper-evident audit history.
+TRUSTLENS is a security-focused prototype for campus document access. It combines server-side sessions, deny-by-default authorization, role and contextual checks, grant revocation, explainable decisions, and hash-linked audit events. The roadmap extends this foundation with policy simulation, immutable policy publication, Policy Impact Verification (PIV), and historical decision replay.
 
-## Monorepo
-- `backend/` — Java 21, Spring Boot 3, PostgreSQL
+> **Status:** Hackathon prototype / development foundation. Not production-ready. Binary document storage and streaming, complete ABAC policy authoring, immutable policy publication, PIV, historical replay, and independent audit checkpoints are not yet complete.
+
+## Repository layout
+
+- `backend/` — Java 21, Spring Boot, Spring Security, PostgreSQL
 - `frontend/` — React, TypeScript, Vite
-- `database/` — database notes and seed data
+- `database/` — database notes
 - `api-contract/` — OpenAPI contract
-- `docs/` — architecture, threat model, team workflow, and setup instructions
+- `docs/` — architecture, threat model, setup, deployment, roadmap
 - `security-tests/` — security test plan
 
-## Development environment setup
+## Implemented foundation
 
-See **[docs/DEVELOPMENT-SETUP.md](docs/DEVELOPMENT-SETUP.md)** for copy-paste installation commands for Kali Linux and Windows, version checks, Docker Compose setup, and local run instructions.
+- Database-backed login/logout with BCrypt and server-side sessions.
+- CSRF token bootstrap and session ID rotation on login.
+- Role-based identities and server-derived actor context.
+- Deny-by-default document authorization with owner, public-read, active-grant, account, document-state, and same-department security-admin checks.
+- Persistent ALLOW/DENY decisions with reason codes and evidence snapshots.
+- Security-admin grant listing and revocation.
+- Hash-linked audit events for access decisions and grant revocation.
+- React dashboard for sign-in, documents, decisions, audit history, and grant administration.
+- Automated backend and frontend tests plus dependency audit checks.
 
-## Start locally
-Prerequisites: Java 21, Node.js 20+, Docker Compose.
+## Planned / prototype roadmap
+
+1. Complete secure document storage and authenticated file delivery.
+2. Generalize authorization into configurable RBAC + ABAC policies.
+3. Build a read-only Policy Sandbox with synthetic scenario simulation and impact visualization.
+4. Add immutable policy versions and controlled publication/approval.
+5. Implement Policy Impact Verification (predicted versus observed outcomes).
+6. Add historical decision replay using original policy and evidence snapshots.
+7. Harden audit verification with signed external checkpoints.
+8. Add advisory anomaly detection and administrator analytics.
+
+See [docs/FEATURE_ROADMAP.md](docs/FEATURE_ROADMAP.md) for status details and [docs/architecture.md](docs/architecture.md) for design boundaries.
+
+## Local development
+
+Prerequisites: Git, Java 21, Maven, Node.js 20+, npm, and Docker Compose.
+
+1. Create local environment configuration:
 
 ```bash
-docker compose up -d db
-cd backend && mvn spring-boot:run
-# in another terminal
-cd frontend && npm install && npm run dev
+cp .env.example .env
 ```
 
-The frontend expects the API at `http://localhost:8080`.
+Change every sample password in `.env` before use. The `.env` file is ignored by Git.
 
-## Security design
-- Deny by default; authorization is enforced by the backend on every protected request.
-- Identity and attributes come from the authenticated server-side principal, never client-supplied role or user IDs.
-- Grants are checked for status, expiry, and revocation on each access.
-- Files are delivered through an authenticated API; do not expose public storage URLs.
-- Policy simulation is read-only; publishing creates an immutable version.
-- Audit hash chaining is tamper-evident, not absolute proof. Production requires protected signing keys and independently stored checkpoints.
-
-## Current status
-This is a development foundation, not a production-ready system. Features remain incomplete until implemented and verified by automated tests. Use synthetic data only in demos.
-
-See [docs/team-workflow.md](docs/team-workflow.md).
-
-
-## Full-stack vertical slice (feature/full-stack-vertical-slice)
-
-This branch connects a first end-to-end backend/frontend workflow:
-- Database-backed session authentication using Spring Security and BCrypt.
-- CSRF bootstrap endpoint and cookie-backed session handling.
-- Synthetic local demo identities (opt-in).
-- Server-side document visibility and access evaluation.
-- READ decisions persisted to `access_decisions`.
-- Hash-linked access and grant-revocation events in `audit_events`.
-- Security-administrator grant listing and revocation.
-- Frontend sign-in, document access request, decision explorer, audit history, and grant administration.
-
-### Local development
-
-Prerequisites: Java 21, Maven, Node.js 20+, npm, and Docker Compose. Install them using the [cross-platform setup guide](docs/DEVELOPMENT-SETUP.md).
-
-1. Start PostgreSQL:
+2. Start PostgreSQL:
 
 ```bash
 docker compose up -d db
 ```
 
-2. Start the backend with local synthetic demo data enabled:
+3. Start the backend. For synthetic demo data, provide unique passwords locally:
 
-Linux / macOS / Kali:
+Kali/Linux/macOS:
 
 ```bash
 cd backend
-DEMO_DATA_ENABLED=true mvn spring-boot:run
+DEMO_DATA_ENABLED=true DEMO_FACULTY_PASSWORD='replace-with-a-unique-long-password' DEMO_ADMIN_PASSWORD='replace-with-another-unique-long-password' COOKIE_SECURE=false mvn spring-boot:run
 ```
 
 PowerShell:
@@ -78,10 +72,13 @@ PowerShell:
 ```powershell
 cd backend
 $env:DEMO_DATA_ENABLED = "true"
+$env:DEMO_FACULTY_PASSWORD = "replace-with-a-unique-long-password"
+$env:DEMO_ADMIN_PASSWORD = "replace-with-another-unique-long-password"
+$env:COOKIE_SECURE = "false"
 mvn spring-boot:run
 ```
 
-3. Start the frontend in another terminal:
+4. In another terminal:
 
 ```bash
 cd frontend
@@ -91,29 +88,37 @@ npm run dev
 
 Open http://localhost:5173.
 
-### Local-only demo accounts
+Demo seeding is disabled by default. It requires both environment passwords (minimum 14 characters). Use only a disposable local database and synthetic data. Never enable demo seeding in a shared or deployed environment.
 
-| Username | Password | Role |
-|---|---|---|
-| demo | TrustLensDemo#2026 | FACULTY |
-| admin | TrustLensAdmin#2026 | SECURITY_ADMIN |
+## Security configuration
 
-These fixed demo credentials are for a disposable local development database only. Demo seeding is disabled by default and must never be enabled in a deployed environment. Change or remove demo credentials before any shared or production deployment.
+- Set `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` to deployment-specific values.
+- Set `COOKIE_SECURE=true` behind HTTPS.
+- Set `CORS_ALLOWED_ORIGINS` to the exact frontend origin(s), comma-separated. Do not use a wildcard with credentialed sessions.
+- Keep `DEMO_DATA_ENABLED=false` in all shared/deployed environments.
+- Store secrets in the deployment platform's secret manager, not in Git.
+- Use HTTPS and a managed PostgreSQL service for hosted environments.
+- Do not expose PostgreSQL publicly.
+- Use synthetic identities and documents in demos.
 
-### End-to-end smoke test
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-1. Sign in as `demo`.
-2. Open Documents and request read access to the seeded confidential research proposal.
-3. Open Decisions and confirm an ALLOW decision was recorded.
-4. Open Audit history and confirm an ACCESS_ALLOW event exists.
-5. Sign out and sign in as `admin`.
-6. Open People & roles and revoke the demo user's READ grant.
-7. Sign out and sign back in as `demo`.
-8. Request the same document again. The backend should deny the next request and persist a DENY decision and audit event.
+## Verification
 
-### Current implementation boundaries
+Run backend tests:
 
-- The document endpoint protects and returns document metadata plus the decision record. Binary file storage and streaming through a dedicated document gateway are not yet implemented.
-- Policy Sandbox, draft policy simulation, immutable policy publication, PIV, and historical replay remain planned/prototype capabilities.
-- Audit events are hash-linked in the database. External signed checkpoints and independent key custody are future hardening work; a database hash chain is not an absolute immutability guarantee.
-- Run the CI workflow and local tests before claiming the branch is verified. A workflow file or committed test is not proof that a test run passed.
+```bash
+cd backend && mvn test
+```
+
+Run frontend checks:
+
+```bash
+cd frontend && npm ci && npm test && npm run build && npm audit --audit-level=high
+```
+
+A successful build does not by itself establish production security. Review [docs/threat-model.md](docs/threat-model.md) and [security-tests/README.md](security-tests/README.md).
+
+## License
+
+No license has been selected yet. Until a license is added, do not assume that the code is available for reuse under an open-source license.
