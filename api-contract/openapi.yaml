@@ -1,0 +1,46 @@
+openapi: 3.0.3
+info:
+  title: TRUSTLENS API
+  version: 0.1.0
+  description: Initial API contract; routes will be implemented incrementally.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/health:
+    get:
+      summary: Service health
+      responses:
+        '200':
+          description: Service is available
+  /api/v1/auth/me:
+    get:
+      summary: Current authenticated principal
+      responses:
+        '200':
+          description: Current user
+        '401':
+          description: Authentication required
+  /api/v1/documents:
+    get:
+      summary: List documents visible to the current principal
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Authorized document list
+        '401':
+          description: Authentication required
+  /api/v1/policies/simulate:
+    post:
+      summary: Simulate a draft policy without publishing it
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Simulation result
+        '403':
+          description: Policy administration permission required
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID

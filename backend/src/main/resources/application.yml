@@ -1,0 +1,29 @@
+app:
+  demo-data:
+    enabled: ${DEMO_DATA_ENABLED:false}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+spring:
+  application:
+    name: trustlens-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/trustlens}
+    username: ${DB_USERNAME:trustlens}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${COOKIE_SECURE:true}
+        same-site: lax
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
