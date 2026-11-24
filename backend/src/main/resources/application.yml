@@ -9,7 +9,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/trustlens}
     username: ${DB_USERNAME:trustlens}
-    password: ${DB_PASSWORD:local_dev_only_change_me}
+    password: ${DB_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -22,7 +22,7 @@ server:
     session:
       cookie:
         http-only: true
-        secure: ${COOKIE_SECURE:false}
+        secure: ${COOKIE_SECURE:true}
         same-site: lax
 springdoc:
   swagger-ui:
