@@ -103,7 +103,7 @@ function PolicySandbox() {
   const [hasSimulated, setHasSimulated] = useState(false);
   const evaluate = (s: SandboxScenario, proposed: boolean) => {
     if (s.owner) return { allowed: true, reason: 'DOCUMENT_OWNER' };
-    if (publicRead && s.classification === 'PUBLIC' && s.action === 'READ') return { allowed: true, reason: 'PUBLIC_READ' };
+    if ((!proposed || publicRead) && s.classification === 'PUBLIC' && s.action === 'READ') return { allowed: true, reason: 'PUBLIC_READ' };
     if (s.grant) return { allowed: true, reason: 'ACTIVE_GRANT' };
     if (s.role === 'SECURITY_ADMIN' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'SECURITY_ADMIN_SAME_DEPARTMENT' };
     if (proposed && departmentRead && s.role === 'FACULTY' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'PROPOSED_FACULTY_DEPARTMENT_RULE' };
