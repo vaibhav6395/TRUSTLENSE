@@ -19,13 +19,17 @@ These capabilities are present in the repository; they are not a claim of produc
 - Persistent access decisions and hash-linked audit event records.
 - Flyway-managed schema and CI checks for builds, tests, dependency audit, image builds and a revocation smoke test.
 
-## Phase 1 — Production safety baseline
+## Phase 1 — Hackathon runnable baseline and production safety boundary
 
 - [x] Add a dedicated Spring prod profile with demo data disabled, secure session cookie defaults, forwarded-header handling and sanitized API error responses.
 - [x] Exclude the synthetic demo initializer whenever the prod profile is active.
 - [x] Make the production Compose stack activate the prod profile explicitly.
-- [ ] Run backend/frontend tests and validate the production Compose configuration in CI.
-- [ ] Add integration tests proving demo users are never seeded under the production profile.
+- [x] Run backend tests, frontend tests/build, dependency audit, secret scan and both container image builds in GitHub Actions.
+- [x] Run the end-to-end smoke test proving revoked READ and DOWNLOAD grants block a still-authenticated session and reused file URL.
+- [ ] Add a dedicated integration test proving demo users are never seeded under the production profile.
+- [ ] Validate production Compose configuration on the target host and verify the HTTPS reverse proxy, persistent volumes and backup restore.
+
+Latest recorded CI run for the production branch completed successfully across all five jobs: frontend, backend, secret-scan, containers and zero-trust-smoke. This validates the CI pipeline, not an independently operated deployment.
 
 ## Phase 2 — Institutional identity and lifecycle
 
@@ -66,4 +70,4 @@ These capabilities are present in the repository; they are not a claim of produc
 
 ## Explicit non-goals for this phase
 
-This work does not certify TRUSTLENSE as secure, provide a live deployment, configure an institutional identity provider, or authorize real confidential data uploads. Keep using synthetic data until the institution's security, privacy, infrastructure and operational owners approve the deployment.
+This work does not certify TRUSTLENS as secure, provide a live deployment, configure an institutional identity provider, or authorize real confidential data uploads. Keep using synthetic data until the institution's security, privacy, infrastructure and operational owners approve the deployment.
