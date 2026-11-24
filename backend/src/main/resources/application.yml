@@ -1,6 +1,8 @@
 app:
   demo-data:
     enabled: ${DEMO_DATA_ENABLED:false}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 spring:
   application:
     name: trustlens-api
