@@ -6,8 +6,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 
 @Component
+@Profile("!prod")
 @ConditionalOnProperty(name = "app.demo-data.enabled", havingValue = "true")
 public class DemoDataInitializer implements CommandLineRunner {
     private final JdbcTemplate jdbc;
