@@ -20,10 +20,12 @@ public class DemoDataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        String facultyPassword = requiredDemoPassword("DEMO_FACULTY_PASSWORD");
+        String adminPassword = requiredDemoPassword("DEMO_ADMIN_PASSWORD");
         ensureRole("FACULTY", "Faculty member");
         ensureRole("SECURITY_ADMIN", "Security administrator");
-        UUID demoId = ensureUser("demo", "Demo Faculty", "CSE");
-        UUID adminId = ensureUser("admin", "Demo Security Administrator", "IT");
+        UUID demoId = ensureUser("demo", "Demo Faculty", "CSE", facultyPassword);
+        UUID adminId = ensureUser("admin", "Demo Security Administrator", "IT", adminPassword);
         assignRole(demoId, "FACULTY");
         assignRole(adminId, "SECURITY_ADMIN");
 
@@ -44,18 +46,25 @@ public class DemoDataInitializer implements CommandLineRunner {
         }
     }
 
+    private String requiredDemoPassword(String variable) {
+        String value = System.getenv(variable);
+        if (value == null || value.length() < 14) {
+            throw new IllegalStateException(variable + " must be set to a unique password of at least 14 characters when demo seeding is enabled");
+        }
+        return value;
+    }
+
     private void ensureRole(String code, String description) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM app_roles WHERE code=?", Integer.class, code);
         if (count == null || count == 0) jdbc.update("INSERT INTO app_roles(id,code,description) VALUES (?,?,?)",
             UUID.randomUUID(), code, description);
     }
 
-    private UUID ensureUser(String username, String displayName, String department) {
+    private UUID ensureUser(String username, String displayName, String department, String password) {
         UUID existing = jdbc.query("SELECT id FROM app_users WHERE username=?",
             rs -> rs.next() ? rs.getObject(1, UUID.class) : null, username);
         if (existing != null) return existing;
         UUID id = UUID.randomUUID();
-        String password = username.equals("demo") ? "TrustLensDemo#2026" : "TrustLensAdmin#2026";
         jdbc.update("INSERT INTO app_users(id,username,password_hash,display_name,department_code,enabled) VALUES (?,?,?,?,?,TRUE)",
             id, username, encoder.encode(password), displayName, department);
         return id;
