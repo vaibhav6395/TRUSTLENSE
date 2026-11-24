@@ -48,6 +48,73 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - `docs/` — architecture, threat model, setup, deployment, roadmap
 - `security-tests/` — security test plan
 
+## Fetching and switching branches
+
+The repository uses separate branches for the stable baseline and ongoing work. Fetch the branch you need explicitly so you do not accidentally work on the wrong version.
+
+### Clone a specific branch
+
+Clone the stable `main` branch:
+
+```bash
+git clone --single-branch --branch main https://github.com/vaibhav6395/TRUSTLENSE.git
+cd TRUSTLENSE
+```
+
+Or clone the production hardening work branch:
+
+```bash
+git clone --single-branch --branch production/phase-1-safety-baseline https://github.com/vaibhav6395/TRUSTLENSE.git
+cd TRUSTLENSE
+```
+
+### If TRUSTLENSE is already cloned
+
+Fetch the latest remote branch information:
+
+```bash
+cd ~/Projects/TRUSTLENSE
+git fetch origin --prune
+git branch -r
+```
+
+Switch to the stable branch:
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+Switch to the production hardening branch:
+
+```bash
+git switch --track origin/production/phase-1-safety-baseline
+```
+
+If you already created a local branch with that name, use:
+
+```bash
+git switch production/phase-1-safety-baseline
+git pull --ff-only
+```
+
+To update the currently checked-out branch without switching branches:
+
+```bash
+
+git pull --ff-only
+```
+
+### See branches and confirm your current branch
+
+```bash
+git branch -a
+git branch --show-current
+git status
+```
+
+Before switching branches, commit or safely stash your own changes. Do not use `git reset --hard` or delete untracked files just to make a branch switch succeed; inspect `git status` first.
+
 ## Local development (Kali Linux / Linux / macOS)
 
 This is the shortest supported local setup. Use synthetic data and a disposable local database only.

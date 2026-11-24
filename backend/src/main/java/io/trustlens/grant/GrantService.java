@@ -44,7 +44,7 @@ public class GrantService {
         if (!"READ".equals(permission) && !"DOWNLOAD".equals(permission)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Permission must be READ or DOWNLOAD");
         }
-        UUID subjectId = jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE AND enabled=TRUE",
+        UUID subjectId = jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",
             rs -> rs.next() ? rs.getObject(1, UUID.class) : null, request.subjectUsername().trim());
         if (subjectId == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Enabled subject user not found");
         Boolean documentExists = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND status='ACTIVE')",
