@@ -83,10 +83,65 @@ function Documents({ documents, onRead, busyId }: { documents: DocumentItem[]; o
     <p className="footnote"><LockKeyhole size={14}/> A document read request is authorized by the backend. Changing an ID in the browser does not grant access.</p>
   </>;
 }
+type SandboxScenario = {
+  id: number; user: string; role: string; department: string; document: string;
+  classification: string; documentDepartment: string; owner: boolean; grant: boolean; action: 'READ' | 'DOWNLOAD';
+};
+
+const sandboxScenarios: SandboxScenario[] = [
+  { id: 1, user: 'A. Sharma', role: 'FACULTY', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: true, action: 'READ' },
+  { id: 2, user: 'R. Mehta', role: 'FACULTY', department: 'CSE', document: 'Lab handbook', classification: 'INTERNAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
+  { id: 3, user: 'K. Rao', role: 'FACULTY', department: 'ECE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
+  { id: 4, user: 'M. Das', role: 'SECURITY_ADMIN', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
+  { id: 5, user: 'S. Khan', role: 'STUDENT', department: 'IT', document: 'Public notice', classification: 'PUBLIC', documentDepartment: 'ADMIN', owner: false, grant: false, action: 'READ' },
+  { id: 6, user: 'P. Verma', role: 'FACULTY', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'DOWNLOAD' },
+];
+
 function PolicySandbox() {
-  return <><SectionHeading eyebrow="POLICY INTELLIGENCE" title="Policy sandbox" detail="Prototype only"/>
-    <div className="notice"><ShieldAlert size={16}/> The current backend does not yet implement draft policy simulation or publication. This area is intentionally marked as a prototype and does not claim to make live access decisions.</div>
-    <div className="panel explanation"><span className="eyebrow">PLANNED WORKFLOW</span><h3>Draft → Simulate → Review → Publish immutable version → Verify observed impact</h3><p className="muted">Policy Impact Verification (PIV) will compare the predicted outcomes from a simulation snapshot with actual decisions made under the published policy version.</p></div>
+  const [departmentRead, setDepartmentRead] = useState(false);
+  const [publicRead, setPublicRead] = useState(true);
+  const [hasSimulated, setHasSimulated] = useState(false);
+  const evaluate = (s: SandboxScenario, proposed: boolean) => {
+    if (s.owner) return { allowed: true, reason: 'DOCUMENT_OWNER' };
+    if (publicRead && s.classification === 'PUBLIC' && s.action === 'READ') return { allowed: true, reason: 'PUBLIC_READ' };
+    if (s.grant) return { allowed: true, reason: 'ACTIVE_GRANT' };
+    if (s.role === 'SECURITY_ADMIN' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'SECURITY_ADMIN_SAME_DEPARTMENT' };
+    if (proposed && departmentRead && s.role === 'FACULTY' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'PROPOSED_FACULTY_DEPARTMENT_RULE' };
+    return { allowed: false, reason: 'NO_MATCHING_POLICY' };
+  };
+  const rows = sandboxScenarios.map(s => {
+    const current = evaluate(s, false);
+    const next = evaluate(s, true);
+    return { ...s, current, next, changed: current.allowed !== next.allowed };
+  });
+  const gained = rows.filter(r => !r.current.allowed && r.next.allowed).length;
+  const lost = rows.filter(r => r.current.allowed && !r.next.allowed).length;
+  const unchanged = rows.length - gained - lost;
+  return <><SectionHeading eyebrow="POLICY INTELLIGENCE" title="Policy sandbox" detail="Read-only synthetic simulation"/>
+    <div className="notice"><ShieldAlert size={16}/> Simulation uses six fabricated scenarios in the browser. It does not query or modify live grants, publish policies, or make production access decisions.</div>
+    <div className="sandbox-grid">
+      <div className="panel">
+        <div className="panel-heading"><div><span className="eyebrow">DRAFT POLICY</span><h3>Proposed rule controls</h3></div><SlidersHorizontal size={19}/></div>
+        <label className="sandbox-toggle"><input type="checkbox" checked={publicRead} onChange={e => {setPublicRead(e.target.checked);setHasSimulated(false);}}/> Permit READ for PUBLIC documents</label>
+        <label className="sandbox-toggle"><input type="checkbox" checked={departmentRead} onChange={e => {setDepartmentRead(e.target.checked);setHasSimulated(false);}}/> Permit same-department FACULTY READ</label>
+        <p className="muted">Current baseline mirrors the implemented evaluator. The faculty department rule is an experimental draft condition.</p>
+        <button className="primary" onClick={() => setHasSimulated(true)}>Run simulation <ChevronRight size={15}/></button>
+        <div className="footnote"><ShieldCheck size={14}/> Read-only: changing controls never writes to the backend.</div>
+      </div>
+      <div className="panel">
+        <div className="panel-heading"><div><span className="eyebrow">IMPACT SUMMARY</span><h3>Predicted access changes</h3></div><Activity size={19}/></div>
+        <div className="metrics sandbox-metrics">
+          <div className="metric"><span className="metric-top">Gain access</span><strong>{hasSimulated ? gained : '—'}</strong><small>New ALLOW outcomes</small></div>
+          <div className="metric"><span className="metric-top">Lose access</span><strong>{hasSimulated ? lost : '—'}</strong><small>New DENY outcomes</small></div>
+        </div>
+        <p className="muted">{hasSimulated ? `${unchanged} of ${rows.length} scenarios remain unchanged. Review each changed outcome below.` : 'Run the simulation to calculate the impact of your draft rules.'}</p>
+      </div>
+    </div>
+    <div className="section-heading"><div><span className="eyebrow">SCENARIO ANALYSIS</span><h2>Predicted decision comparison</h2></div><span className="muted">Synthetic identities only · {rows.length} cases</span></div>
+    <div className="table-wrap"><table><thead><tr><th>IDENTITY</th><th>RESOURCE / ACTION</th><th>CURRENT</th><th>PROPOSED</th><th>EXPLANATION</th></tr></thead><tbody>
+      {rows.map(r => <tr key={r.id}><td><strong>{r.user}</strong><small>{r.role} · {r.department}</small></td><td>{r.document}<small>{r.classification} · {r.action}</small></td><td><Badge tone={r.current.allowed ? 'green' : 'red'}>{r.current.allowed ? 'ALLOW' : 'DENY'}</Badge></td><td><Badge tone={r.next.allowed ? 'green' : 'red'}>{r.next.allowed ? 'ALLOW' : 'DENY'}</Badge></td><td>{hasSimulated ? <><strong>{r.changed ? 'CHANGED' : 'UNCHANGED'}</strong><small>{r.next.reason}</small></> : <small>Run simulation to review impact</small>}</td></tr>)}
+    </tbody></table></div>
+    <div className="panel explanation"><span className="eyebrow">NEXT POLICY LIFECYCLE STEPS</span><h3>Draft → Simulate → Review → Publish immutable version → Verify observed impact</h3><p className="muted">This prototype demonstrates impact comparison on synthetic scenarios. Policy persistence, approval, immutable publication, and Policy Impact Verification against real observed decisions remain planned backend work.</p></div>
   </>;
 }
 function Decisions({ decisions }: { decisions: DecisionItem[] }) {
