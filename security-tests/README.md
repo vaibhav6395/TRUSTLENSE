@@ -1,16 +1,51 @@
-# Security test plan
+# TRUSTLENS security demonstration and test plan
 
-Start with negative authorization tests before adding advanced features.
+Use a disposable local database, synthetic users and harmless test files only.
 
-- Unauthenticated request to a protected endpoint returns 401.
-- Authenticated user without a matching grant receives 403.
-- User cannot change their effective role/department by editing request JSON.
-- Revoked and expired grants are denied on the next request.
-- A document identifier from another user cannot bypass authorization.
-- A user cannot access a retired document.
-- Non-admin cannot publish policy versions.
-- Simulation makes no persistent policy changes.
-- Logout invalidates the server session.
-- Invalid input does not expose stack traces or internal configuration.
+## Automated checks
 
-Tests must use synthetic users and documents.
+Run backend and frontend checks from the repository root:
+
+~~~bash
+(cd backend && mvn test)
+(cd frontend && npm install && npm test && npm run build)
+~~~
+
+The backend suite covers the deterministic policy core and private file-storage validation. CI also builds both container images and runs the frontend dependency audit.
+
+## Required end-to-end adversarial demonstration
+
+Use two browser sessions or separate cookie jars:
+- admin: SECURITY_ADMIN, configured with DEMO_ADMIN_PASSWORD.
+- demo: FACULTY, configured with DEMO_FACULTY_PASSWORD.
+
+1. Sign in as admin and upload a harmless synthetic PDF as CONFIDENTIAL.
+2. Create a DOWNLOAD grant for demo with a short future expiry.
+3. Sign in as demo and request the document download. Confirm it succeeds.
+4. Save the application URL /api/v1/documents/{id}/content (this is not a bearer token; it requires the authenticated session).
+5. While demo remains signed in, revoke the grant as admin.
+6. Retry the exact same content URL from demo's still-active session. It must return HTTP 403.
+7. Retry POST /api/v1/documents/{id}/access-check with action DOWNLOAD from demo's still-active session and valid CSRF token. It must return a denied decision; the content route must remain forbidden.
+8. Inspect Decisions and Audit history. Confirm the denial, reason code, grant creation and revocation are visible.
+
+Expected policy outcomes:
+- Active matching grant: ALLOW.
+- Revoked or expired grant: DENY on the next protected request.
+- Public classification: READ may be allowed; DOWNLOAD is not implied.
+- Disabled account or retired document: DENY, including for owners.
+- Missing permission: DENY by default.
+
+## Upload validation checks
+
+- Upload a PDF whose bytes begin with a PDF signature: accepted.
+- Rename arbitrary binary bytes to .pdf: rejected when its declared type/signature does not match.
+- Upload unsupported archive or executable types: rejected.
+- Upload larger than 10 MB: rejected.
+- Attempt a path traversal storage key: rejected by storage-key validation.
+- Confirm stored files are not inside the frontend static web root and that the database contains only a generated storage key, not a public URL.
+
+## Important boundaries
+
+- The application re-evaluates access for every new download request. It cannot recall bytes already downloaded or copied.
+- A database hash chain provides tamper evidence only under its database and key trust assumptions; it is not absolute immutability.
+- These checks are a hackathon demonstration plan, not a substitute for a professional penetration test.
