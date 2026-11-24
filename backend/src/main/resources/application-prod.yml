@@ -1,0 +1,24 @@
+# Settings applied when SPRING_PROFILES_ACTIVE=prod.
+# Secrets and deployment-specific origins must be supplied by the deployment environment.
+app:
+  demo-data:
+    enabled: false
+
+server:
+  forward-headers-strategy: framework
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        secure: true
+        same-site: lax
+
+spring:
+  jpa:
+    open-in-view: false
