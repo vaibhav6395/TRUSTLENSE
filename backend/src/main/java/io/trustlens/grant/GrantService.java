@@ -13,6 +13,24 @@ public class GrantService {
     private final JdbcTemplate jdbc;
     public GrantService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    public java.util.List<Map<String, Object>> list(String username) {
+        UUID actorId = jdbc.query("SELECT id FROM app_users WHERE username=?",
+            rs -> rs.next() ? rs.getObject(1, UUID.class) : null, username);
+        if (actorId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        Boolean admin = jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+            WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
+            """, Boolean.class, actorId);
+        if (!Boolean.TRUE.equals(admin)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Security administrator role required");
+        return jdbc.queryForList("""
+            SELECT g.id, d.title AS document, u.username AS subject,
+                   g.permission, g.expires_at AS "expiresAt", g.revoked_at AS "revokedAt"
+            FROM access_grants g JOIN documents d ON d.id=g.document_id
+            JOIN app_users u ON u.id=g.subject_user_id
+            ORDER BY g.created_at DESC
+            """);
+    }
+
     @Transactional
     public Map<String, Object> revoke(UUID grantId, String username) {
         UUID actorId = jdbc.query("SELECT id FROM app_users WHERE username=?",
