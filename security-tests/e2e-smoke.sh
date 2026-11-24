@@ -7,6 +7,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 ADMIN_JAR="$TMP_DIR/admin.cookies"
 DEMO_JAR="$TMP_DIR/demo.cookies"
+: > "$ADMIN_JAR"
+: > "$DEMO_JAR"
 PDF="$TMP_DIR/synthetic.pdf"
 printf '%%PDF-1.7\nTRUSTLENS synthetic security test\n' > "$PDF"
 
