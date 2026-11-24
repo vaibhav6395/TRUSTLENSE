@@ -9,8 +9,12 @@ TRUSTLENS combines role- and attribute-based authorization with revocation, poli
 - `frontend/` — React, TypeScript, Vite
 - `database/` — database notes and seed data
 - `api-contract/` — OpenAPI contract
-- `docs/` — architecture, threat model, team workflow
+- `docs/` — architecture, threat model, team workflow, and setup instructions
 - `security-tests/` — security test plan
+
+## Development environment setup
+
+See **[docs/DEVELOPMENT-SETUP.md](docs/DEVELOPMENT-SETUP.md)** for copy-paste installation commands for Kali Linux and Windows, version checks, Docker Compose setup, and local run instructions.
 
 ## Start locally
 Prerequisites: Java 21, Node.js 20+, Docker Compose.
@@ -52,7 +56,7 @@ This branch connects a first end-to-end backend/frontend workflow:
 
 ### Local development
 
-Prerequisites: Java 21, Maven, Node.js 20+, npm, and Docker Compose.
+Prerequisites: Java 21, Maven, Node.js 20+, npm, and Docker Compose. Install them using the [cross-platform setup guide](docs/DEVELOPMENT-SETUP.md).
 
 1. Start PostgreSQL:
 
