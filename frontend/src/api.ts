@@ -72,3 +72,47 @@ export type GrantItem = {
   id: string; document: string; subject: string; permission: string;
   expiresAt: string | null; revokedAt: string | null;
 };
+
+
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  await ensureCsrf();
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    body: form,
+    credentials: 'include',
+    headers: { Accept: 'application/json', [csrfHeader]: csrfToken ?? '' },
+  });
+  const raw = await response.text();
+  let data: unknown = undefined;
+  if (raw) { try { data = JSON.parse(raw); } catch { data = raw; } }
+  if (!response.ok) {
+    const body = data as { message?: string; detail?: string } | undefined;
+    throw new ApiError(response.status, body?.detail ?? body?.message ?? `Upload failed (${response.status})`);
+  }
+  return data as T;
+}
+
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'GET', credentials: 'include', cache: 'no-store',
+    headers: { Accept: 'application/octet-stream' },
+  });
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = `Download failed (${response.status})`;
+    try {
+      const body = JSON.parse(raw) as { message?: string; detail?: string };
+      message = body.detail ?? body.message ?? message;
+    } catch { if (raw) message = raw; }
+    throw new ApiError(response.status, message);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}

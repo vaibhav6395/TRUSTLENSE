@@ -3,26 +3,33 @@ package io.trustlens.document;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.trustlens.authorization.PolicyEvaluator;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class DocumentService {
+    private static final Set<String> CLASSIFICATIONS = Set.of("PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final DocumentFileStorage storage;
 
-    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper, DocumentFileStorage storage) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.storage = storage;
     }
 
     public java.util.List<Map<String, Object>> listVisible(String username) {
@@ -33,11 +40,16 @@ public class DocumentService {
             FROM documents d
             JOIN app_users u ON u.id=d.owner_id
             JOIN app_users actor ON actor.username=?
-            WHERE d.status='ACTIVE'
-              AND (d.classification='PUBLIC' OR d.owner_id=actor.id
+            WHERE actor.enabled=TRUE AND d.status='ACTIVE'
+              AND (d.owner_id=actor.id
+                   OR (d.classification='PUBLIC')
                    OR EXISTS (SELECT 1 FROM access_grants g
-                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id AND g.permission='READ'
-                       AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > now())))
+                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id
+                       AND g.permission IN ('READ','DOWNLOAD')
+                       AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > now()))
+                   OR (actor.department_code=d.department_code AND EXISTS (
+                     SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                     WHERE ur.user_id=actor.id AND r.code='SECURITY_ADMIN')))
             ORDER BY d.created_at DESC
             """, username);
     }
@@ -56,7 +68,75 @@ public class DocumentService {
         return Map.of("document", doc, "decision", decision);
     }
 
+    @Transactional(noRollbackFor = ResponseStatusException.class)
+    public DownloadFile download(UUID documentId, String username) {
+        Map<String, Object> decision = evaluateAndRecord(documentId, username, "DOWNLOAD");
+        if (!Boolean.TRUE.equals(decision.get("allowed"))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, (String) decision.get("explanation"));
+        }
+        Map<String, Object> doc = jdbc.queryForMap("""
+            SELECT title, storage_key, content_type, size_bytes
+            FROM documents WHERE id=? AND status='ACTIVE'
+            """, documentId);
+        String key = (String) doc.get("storage_key");
+        String contentType = (String) doc.get("content_type");
+        Object sizeValue = doc.get("size_bytes");
+        if (contentType == null || sizeValue == null || key == null || key.startsWith("demo://")) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This synthetic document has no uploaded file content");
+        }
+        Path path;
+        try { path = storage.resolve(key); }
+        catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
+        }
+        if (!java.nio.file.Files.isRegularFile(path)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
+        }
+        return new DownloadFile(path, (String) doc.get("title"), contentType, ((Number) sizeValue).longValue());
+    }
+
     @Transactional
+    public Map<String, Object> upload(MultipartFile file, String title, String classification, String username) throws IOException {
+        if (title == null || title.isBlank() || title.length() > 240) {
+            throw new IllegalArgumentException("Title is required and must be at most 240 characters");
+        }
+        if (classification == null || !CLASSIFICATIONS.contains(classification)) {
+            throw new IllegalArgumentException("Classification must be PUBLIC, INTERNAL, CONFIDENTIAL or RESTRICTED");
+        }
+        Map<String, Object> actor = jdbc.queryForMap(
+            "SELECT id, department_code FROM app_users WHERE username=? AND enabled=TRUE", username);
+        UUID ownerId = (UUID) actor.get("id");
+        if ("PUBLIC".equals(classification) || "RESTRICTED".equals(classification)) {
+            Boolean admin = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
+                """, Boolean.class, ownerId);
+            if (!Boolean.TRUE.equals(admin)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only SECURITY_ADMIN may publish PUBLIC or RESTRICTED documents");
+            }
+        }
+        DocumentFileStorage.StoredFile stored = storage.store(file);
+        UUID documentId = UUID.randomUUID();
+        try {
+            jdbc.update("""
+                INSERT INTO documents(id,title,owner_id,department_code,classification,storage_key,status,
+                                      content_type,size_bytes,content_sha256)
+                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?)
+                """, documentId, title.trim(), ownerId, actor.get("department_code"), classification,
+                stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256());
+            appendAudit(ownerId, "DOCUMENT_UPLOADED", json(Map.of(
+                "documentId", documentId.toString(), "classification", classification,
+                "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256())));
+        } catch (RuntimeException ex) {
+            storage.deleteQuietly(stored.storageKey());
+            throw ex;
+        }
+        return Map.of("id", documentId, "title", title.trim(), "classification", classification,
+                      "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
+    }
+
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> check(UUID documentId, String username, String action) {
         if (!"READ".equals(action) && !"DOWNLOAD".equals(action)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Action must be READ or DOWNLOAD");
@@ -88,18 +168,28 @@ public class DocumentService {
              WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
             """, Boolean.class, actorId));
         String permission = "DOWNLOAD".equals(action) ? "DOWNLOAD" : "READ";
-        Boolean grant = jdbc.queryForObject("""
-            SELECT EXISTS(SELECT 1 FROM access_grants
-             WHERE document_id=? AND subject_user_id=? AND permission=?
-               AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
-            """, Boolean.class, documentId, actorId, permission);
+        Map<String, Object> grantState = jdbc.queryForMap("""
+            SELECT
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND expires_at <= now()) AS expired,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NOT NULL) AS revoked
+            """, documentId, actorId, permission, documentId, actorId, permission,
+                 documentId, actorId, permission);
+        boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
+        boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
+        boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
         boolean departmentMatch = actorDept != null && actorDept.equals(docDept);
         PolicyEvaluator.Result policyResult = PolicyEvaluator.evaluate(new PolicyEvaluator.Facts(
-            enabled, activeDocument, owner, publicRead, Boolean.TRUE.equals(grant),
+            enabled, activeDocument, owner, publicRead, activeGrant,
             securityAdmin && departmentMatch && "READ".equals(action)
         ));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
+        if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
+        else if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
         String explanation = allowed ? "The current server-side policy permits this action (" + reason + ")."
             : "Access denied because no active policy condition permits this action (" + reason + ").";
         UUID decisionId = UUID.randomUUID();
@@ -110,7 +200,9 @@ public class DocumentService {
             "accountEnabled", enabled,
             "documentActive", activeDocument,
             "owner", owner,
-            "activeGrant", Boolean.TRUE.equals(grant),
+            "activeGrant", activeGrant,
+            "grantExpired", expiredGrant,
+            "grantRevoked", revokedGrant,
             "action", action
         ));
         jdbc.update("""
@@ -147,4 +239,6 @@ public class DocumentService {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
     }
+
+    public record DownloadFile(Path path, String title, String contentType, long sizeBytes) {}
 }

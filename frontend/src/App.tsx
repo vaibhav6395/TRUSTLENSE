@@ -5,7 +5,7 @@ import {
   LogOut, RefreshCw, ShieldAlert, ShieldCheck, SlidersHorizontal, Users
 } from 'lucide-react';
 import {
-  apiGet, apiPost, clearCsrf, type AuditItem, type CurrentUser,
+  apiGet, apiPost, apiUpload, apiDownload, clearCsrf, type AuditItem, type CurrentUser,
   type DecisionItem, type DocumentItem, type GrantItem, type Health
 } from './api';
 
@@ -39,7 +39,7 @@ function Login({ onLogin }: { onLogin: (username: string, password: string) => P
     <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required/></label>
     {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
     <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowUpRight size={16}/></button>
-    <div className="login-hint">Local demo account: <strong>demo</strong> / <strong>TrustLensDemo#2026</strong></div>
+    <div className="login-hint">Use credentials configured by your project administrator for this environment.</div>
   </form></main>;
 }
 function Overview({ health, documents, decisions, audit, setPage }: {
@@ -72,15 +72,47 @@ function Overview({ health, documents, decisions, audit, setPage }: {
     ].map(({name,detail,icon:Icon,page}) => <button className="module" key={name} onClick={() => setPage(page)}><div className="module-icon"><Icon size={20}/></div><div className="module-title"><h3>{name}</h3><ChevronRight size={16}/></div><p>{detail}</p><div className="module-foot">Open module <ArrowUpRight size={14}/></div></button>)}</section>
   </>;
 }
-function Documents({ documents, onRead, busyId }: { documents: DocumentItem[]; onRead: (d: DocumentItem) => void; busyId: string }) {
+function Documents({ documents, onRead, busyId, onUpload, onDownload }: {
+  documents: DocumentItem[]; onRead: (d: DocumentItem) => void; busyId: string;
+  onUpload: (file: File, title: string, classification: string) => Promise<void>;
+  onDownload: (d: DocumentItem) => Promise<void>;
+}) {
   const [query,setQuery] = useState('');
+  const [file,setFile] = useState<File | null>(null);
+  const [title,setTitle] = useState('');
+  const [classification,setClassification] = useState('INTERNAL');
+  const [uploading,setUploading] = useState(false);
+  const [error,setError] = useState('');
   const filtered = documents.filter(d => (d.title + d.owner + d.department + d.classification).toLowerCase().includes(query.toLowerCase()));
+  async function submitUpload(e: FormEvent) {
+    e.preventDefault(); setError('');
+    if (!file) { setError('Choose a file to upload.'); return; }
+    setUploading(true);
+    try { await onUpload(file, title, classification); setFile(null); setTitle(''); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Upload failed'); }
+    finally { setUploading(false); }
+  }
+  async function download(doc: DocumentItem) {
+    setError('');
+    try { await onDownload(doc); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Download failed'); }
+  }
   return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Visible under your current identity"/>
+    <form className="toolbar" onSubmit={submitUpload}>
+      <input aria-label="Document title" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Document title" required maxLength={240}/>
+      <select aria-label="Classification" value={classification} onChange={e=>setClassification(e.target.value)}>
+        <option>PUBLIC</option><option>INTERNAL</option><option>CONFIDENTIAL</option><option>RESTRICTED</option>
+      </select>
+      <input aria-label="Choose file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,application/pdf,text/plain,image/png,image/jpeg" onChange={e=>setFile(e.target.files?.[0] ?? null)} required/>
+      <button className="primary" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</button>
+    </form>
+    <p className="footnote"><LockKeyhole size={14}/> Private uploads accept PDF, TXT, PNG and JPEG files up to 10 MB. Files are stored outside the public web root.</p>
+    {error && <div className="connection-notice">{error}</div>}
     <div className="toolbar"><input className="search-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search visible documents"/></div>
     <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>OWNER</th><th>DEPARTMENT</th><th>CLASSIFICATION</th><th>ACCESS</th></tr></thead><tbody>
-      {filtered.map(d => <tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.id}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification === 'PUBLIC' ? 'green' : d.classification === 'RESTRICTED' ? 'red' : 'amber'}>{d.classification}</Badge></td><td><button className="secondary" disabled={busyId === d.id} onClick={() => onRead(d)}>{busyId === d.id ? 'Checking…' : 'Request read'}</button></td></tr>)}
+      {filtered.map(d => <tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.id}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification === 'PUBLIC' ? 'green' : d.classification === 'RESTRICTED' ? 'red' : 'amber'}>{d.classification}</Badge></td><td><div className="toolbar"><button className="secondary" disabled={busyId === d.id} onClick={() => onRead(d)}>{busyId === d.id ? 'Checking…' : 'Request read'}</button><button className="secondary" onClick={() => void download(d)}>Download</button></div></td></tr>)}
     </tbody></table>{filtered.length===0 && <div className="empty">No visible documents found.</div>}</div>
-    <p className="footnote"><LockKeyhole size={14}/> A document read request is authorized by the backend. Changing an ID in the browser does not grant access.</p>
+    <p className="footnote"><LockKeyhole size={14}/> Every read and download is checked by the backend. Old application URLs do not bypass current grant checks.</p>
   </>;
 }
 type SandboxScenario = {
@@ -158,10 +190,14 @@ function AuditHistory({ audit }: { audit: AuditItem[] }) {
     {audit.length===0 && <div className="empty">No audit events recorded yet.</div>}
   </>;
 }
-function People({ user, onChanged }: { user: CurrentUser; onChanged: () => Promise<void> }) {
+function People({ user, documents, onChanged }: { user: CurrentUser; documents: DocumentItem[]; onChanged: () => Promise<void> }) {
   const [grants,setGrants] = useState<GrantItem[]>([]);
   const [error,setError] = useState('');
   const [busy,setBusy] = useState('');
+  const [subject,setSubject] = useState('');
+  const [documentId,setDocumentId] = useState('');
+  const [permission,setPermission] = useState('READ');
+  const [expiresAt,setExpiresAt] = useState('');
   const isAdmin = user.authorities.includes('ROLE_SECURITY_ADMIN');
   async function load() {
     try { setGrants(await apiGet<GrantItem[]>('/api/v1/grants')); setError(''); }
@@ -174,10 +210,30 @@ function People({ user, onChanged }: { user: CurrentUser; onChanged: () => Promi
     catch (e) { setError(e instanceof Error ? e.message : 'Revocation failed'); }
     finally { setBusy(''); }
   }
+  async function createGrant(e: FormEvent) {
+    e.preventDefault(); setBusy('create'); setError('');
+    try {
+      await apiPost('/api/v1/grants', {
+        documentId, subjectUsername: subject.trim(), permission,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      });
+      setSubject(''); setExpiresAt(''); await load(); await onChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Grant creation failed'); }
+    finally { setBusy(''); }
+  }
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
     {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
     {error && <div className="connection-notice">{error}</div>}
-    {isAdmin && <><div className="notice"><CircleHelp size={16}/> Revoking a grant changes its active state in PostgreSQL. The next protected request is evaluated against the updated state.</div>
+    {isAdmin && <><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
+      <form className="toolbar" onSubmit={createGrant}>
+        <select aria-label="Document" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
+          <option value="">Select document</option>{documents.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
+        </select>
+        <input aria-label="Subject username" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Existing username" required/>
+        <select aria-label="Permission" value={permission} onChange={e=>setPermission(e.target.value)}><option value="READ">READ</option><option value="DOWNLOAD">DOWNLOAD</option></select>
+        <input aria-label="Grant expiry" type="datetime-local" value={expiresAt} onChange={e=>setExpiresAt(e.target.value)}/>
+        <button className="primary" disabled={busy==='create'}>{busy==='create'?'Creating…':'Create grant'}</button>
+      </form>
       <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>SUBJECT</th><th>PERMISSION</th><th>STATUS</th><th/></tr></thead><tbody>
         {grants.map(g=><tr key={g.id}><td>{g.document}</td><td>{g.subject}</td><td>{g.permission}</td><td><Badge tone={g.revokedAt?'red':'green'}>{g.revokedAt?'REVOKED':'ACTIVE'}</Badge></td><td>{!g.revokedAt && <button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke grant'}</button>}</td></tr>)}
       </tbody></table>{grants.length===0 && <div className="empty">No grants found.</div>}</div>
@@ -246,8 +302,11 @@ export default function App() {
       <header className="topbar"><div><span className="eyebrow">CAMPUS SECURITY PLATFORM</span><h1>{page}</h1></div><div className="topbar-right"><div className="status-pill"><span className={health?.status==='UP'?'dot online':'dot'}/>{health?.status==='UP'?'API connected':'API offline'}</div><div className="user-chip"><div className="avatar">{user.username.slice(0,2).toUpperCase()}</div><span>{user.username}</span></div><button className="icon-button" title="Refresh data" onClick={() => refreshData().catch(e=>setMessage(e.message))}><RefreshCw size={15}/></button><button className="icon-button" title="Sign out" onClick={() => logout().catch(e=>setMessage(e.message))}><LogOut size={15}/></button></div></header>
       {message && <div className="connection-notice"><Check size={15}/>{message}</div>}
       {page==='Overview' && <Overview health={health} documents={documents} decisions={decisions} audit={audit} setPage={setPage}/>}
-      {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}/>}
-      {page==='People & roles' && <People user={user} onChanged={refreshData}/>}
+      {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}
+        onUpload={async (file,title,classification) => { const form=new FormData(); form.append('file',file); form.append('title',title); form.append('classification',classification); await apiUpload('/api/v1/documents',form); await refreshData(); setMessage('Document uploaded to private storage.'); }}
+        onDownload={async doc => { await apiDownload(`/api/v1/documents/${doc.id}/content`,doc.title); await refreshData(); setMessage('Download authorized by the current server-side policy.'); }}/>}
+      
+      {page==='People & roles' && <People user={user} documents={documents} onChanged={refreshData}/>}
       {page==='Policy sandbox' && <PolicySandbox/>}
       {page==='Decisions' && <Decisions decisions={decisions}/>}
       {page==='Audit history' && <AuditHistory audit={audit}/>}

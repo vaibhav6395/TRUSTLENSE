@@ -29,6 +29,9 @@ services:
       COOKIE_SECURE: "true"
       CORS_ALLOWED_ORIGINS: ${PUBLIC_APP_ORIGIN:?Set PUBLIC_APP_ORIGIN to the HTTPS app origin}
       DEMO_DATA_ENABLED: "false"
+      FILE_STORAGE_ROOT: /var/lib/trustlens/files
+    volumes:
+      - trustlens_files:/var/lib/trustlens/files
     depends_on:
       db:
         condition: service_healthy
@@ -55,3 +58,4 @@ networks:
 
 volumes:
   trustlens_pgdata:
+  trustlens_files:

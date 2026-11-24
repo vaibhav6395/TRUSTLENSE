@@ -16,6 +16,12 @@ public class GrantController {
         return grants.list(authentication.getName());
     }
 
+    @PostMapping
+    public Map<String, Object> create(@RequestBody GrantService.CreateGrantRequest request,
+                                      Authentication authentication) {
+        return grants.create(request, authentication.getName());
+    }
+
     @PostMapping("/{id}/revoke")
     public Map<String, Object> revoke(@PathVariable UUID id, Authentication authentication) {
         return grants.revoke(id, authentication.getName());
