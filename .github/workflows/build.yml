@@ -49,3 +49,12 @@ jobs:
           cache: maven
       - run: mvn -B test
         working-directory: backend
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t trustlens-backend:ci .
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile -t trustlens-frontend:ci .
