@@ -20,6 +20,8 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm test
+      - name: Report dependency audit findings
+        run: npm audit --json > npm-audit.json || true; node -e "const a=require('./npm-audit.json'); console.log(JSON.stringify(a.vulnerabilities ?? {}, null, 2))"
 
   backend:
     runs-on: ubuntu-latest
