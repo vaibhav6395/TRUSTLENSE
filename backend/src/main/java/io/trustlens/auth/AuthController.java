@@ -40,6 +40,8 @@ public class AuthController {
         Authentication authenticated = authenticationManager.authenticate(
             UsernamePasswordAuthenticationToken.unauthenticated(body.username().trim(), body.password())
         );
+        // Rotate the existing session ID after authentication to mitigate session fixation.
+        if (request.getSession(false) != null) request.changeSessionId();
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authenticated);
         SecurityContextHolder.setContext(context);
