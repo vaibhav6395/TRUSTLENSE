@@ -64,16 +64,22 @@ Kali/Linux/macOS:
 
 ```bash
 cd backend
-DEMO_DATA_ENABLED=true DEMO_FACULTY_PASSWORD='replace-with-a-unique-long-password' DEMO_ADMIN_PASSWORD='replace-with-another-unique-long-password' COOKIE_SECURE=false mvn spring-boot:run
+set -a
+source ../.env
+set +a
+DEMO_DATA_ENABLED=true COOKIE_SECURE=false mvn spring-boot:run
 ```
 
 PowerShell:
 
 ```powershell
 cd backend
+$env:DB_URL = "jdbc:postgresql://localhost:5432/trustlens"
+$env:DB_USERNAME = "trustlens"
+$env:DB_PASSWORD = "the-same-value-as-POSTGRES_PASSWORD-in-your-local-env-file"
 $env:DEMO_DATA_ENABLED = "true"
-$env:DEMO_FACULTY_PASSWORD = "replace-with-a-unique-long-password"
-$env:DEMO_ADMIN_PASSWORD = "replace-with-another-unique-long-password"
+$env:DEMO_FACULTY_PASSWORD = "your-unique-password-at-least-14-characters"
+$env:DEMO_ADMIN_PASSWORD = "a-different-unique-password-at-least-14-characters"
 $env:COOKIE_SECURE = "false"
 mvn spring-boot:run
 ```
@@ -86,7 +92,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173. Replace all placeholders in `.env` first; the file is ignored by Git.
 
 Demo seeding is disabled by default. It requires both environment passwords (minimum 14 characters). Use only a disposable local database and synthetic data. Never enable demo seeding in a shared or deployed environment.
 
