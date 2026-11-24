@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trustlens
+      POSTGRES_USER: trustlens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the deployment environment}
+    volumes:
+      - trustlens_pgdata:/var/lib/postgresql/data
+    networks:
+      - trustlens-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trustlens -d trustlens"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 8080
+      DB_URL: jdbc:postgresql://db:5432/trustlens
+      DB_USERNAME: trustlens
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the deployment environment}
+      COOKIE_SECURE: "true"
+      CORS_ALLOWED_ORIGINS: ${PUBLIC_APP_ORIGIN:?Set PUBLIC_APP_ORIGIN to the HTTPS app origin}
+      DEMO_DATA_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - trustlens-internal
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    depends_on:
+      - backend
+    networks:
+      - trustlens-internal
+
+networks:
+  trustlens-internal:
+    internal: true
+
+volumes:
+  trustlens_pgdata:
