@@ -2,6 +2,7 @@ package io.trustlens.document;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.trustlens.authorization.PolicyEvaluator;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -93,13 +94,12 @@ public class DocumentService {
                AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
             """, Boolean.class, documentId, actorId, permission);
         boolean departmentMatch = actorDept != null && actorDept.equals(docDept);
-        boolean allowed = enabled && activeDocument &&
-            (owner || publicRead || Boolean.TRUE.equals(grant) ||
-             (securityAdmin && departmentMatch && "READ".equals(action)));
-        String reason = !enabled ? "ACCOUNT_DISABLED" :
-            !activeDocument ? "DOCUMENT_INACTIVE" :
-            allowed ? (owner ? "DOCUMENT_OWNER" : publicRead ? "PUBLIC_READ" :
-                Boolean.TRUE.equals(grant) ? "ACTIVE_GRANT" : "SECURITY_ADMIN_SAME_DEPARTMENT") : "NO_MATCHING_POLICY";
+        PolicyEvaluator.Result policyResult = PolicyEvaluator.evaluate(new PolicyEvaluator.Facts(
+            enabled, activeDocument, owner, publicRead, Boolean.TRUE.equals(grant),
+            securityAdmin && departmentMatch && "READ".equals(action)
+        ));
+        boolean allowed = policyResult.allowed();
+        String reason = policyResult.reasonCode();
         String explanation = allowed ? "The current server-side policy permits this action (" + reason + ")."
             : "Access denied because no active policy condition permits this action (" + reason + ").";
         UUID decisionId = UUID.randomUUID();
