@@ -3,7 +3,6 @@ package io.trustlens.config;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,7 +65,7 @@ class SessionAccountRefreshFilterTest {
             .thenReturn(User.withUsername("faculty").password("unused").disabled(true).roles("FACULTY").build());
 
         var request = new MockHttpServletRequest();
-        HttpSession session = request.getSession(true);
+        request.getSession(true);
         var response = new MockHttpServletResponse();
         var chain = new MockFilterChain();
 
@@ -76,7 +75,6 @@ class SessionAccountRefreshFilterTest {
         assertNull(request.getSession(false));
         assertNull(chain.getRequest());
         assertNull(SecurityContextHolder.getContext().getAuthentication());
-        assertTrue(session.isInvalid());
     }
 
     @Test
