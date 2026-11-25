@@ -298,9 +298,13 @@ public class DocumentService {
             "documentDepartment", docDept == null ? "" : docDept,
             "classification", classification,
             "accountEnabled", enabled,
-            "documentActive", activeDocument,
-            "owner", owner,
-            "activeGrant", activeGrant,
+            "documentActive",activeDocument,
+            "owner",owner,
+            "actorRoles",roles,
+            "actorClearance",actorClearance,
+            "requiredClearance",requiredClearance,
+            "documentTags",tags,
+            "activeGrant",activeGrant,
             "grantExpired", expiredGrant,
             "grantRevoked", revokedGrant,
             "action", action
@@ -310,9 +314,9 @@ public class DocumentService {
             INSERT INTO access_decisions(id,actor_user_id,document_id,action,outcome,reason_code,explanation,policy_version_id,evidence_snapshot)
             VALUES (?,?,?,?,?,?,?,?,CAST(? AS jsonb))
             """, decisionId, actorId, documentId, action, allowed ? "ALLOW" : "DENY", reason, explanation, policyVersionId, evidence);
-        appendAudit(actorId, "ACCESS_" + (allowed ? "ALLOW" : "DENY"),
-            json(Map.of("decisionId", decisionId.toString(), "documentId", documentId.toString(),
-                        "action", action, "reasonCode", reason)));
+        appendAudit(actorId,"ACCESS_"+(allowed?"ALLOW":"DENY"),
+            json(Map.of("decisionId",decisionId.toString(),"documentId",documentId.toString(),
+                "action",action,"reasonCode",reason,"policyVersionId",policyVersionId==null?"BASELINE":policyVersionId.toString())));
         return Map.of("decisionId", decisionId, "allowed", allowed,
                       "outcome", allowed ? "ALLOW" : "DENY",
                       "reasonCode", reason, "explanation", explanation);
