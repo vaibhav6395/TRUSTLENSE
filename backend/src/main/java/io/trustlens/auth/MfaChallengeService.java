@@ -4,6 +4,8 @@ import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import io.trustlens.audit.IdentityAuditService;
@@ -51,7 +53,7 @@ public class MfaChallengeService {
     }
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
-    public void verify(String token, String code, String username) {
+    public List<String> verify(String token, String code, String username) {
         Map<String,Object> challenge = findChallenge(token, null, username);
         jdbc.update("UPDATE auth_mfa_challenges SET attempts=attempts+1 WHERE id=?", challenge.get("id"));
         Integer attempts = jdbc.queryForObject("SELECT attempts FROM auth_mfa_challenges WHERE id=?", Integer.class, challenge.get("id"));
@@ -64,18 +66,49 @@ public class MfaChallengeService {
         if ("ENROLL".equals(purpose)) encrypted = (String) challenge.get("pending_secret_encrypted");
         else encrypted = jdbc.queryForObject("SELECT mfa_secret_encrypted FROM app_users WHERE username=?",
             String.class, username);
-        if (encrypted == null || !totp.verify(totp.decrypt(encrypted), code)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid authenticator code");
-        }
+        if (encrypted == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "MFA setup must be completed again");
+        boolean totpValid = totp.verify(totp.decrypt(encrypted), code);
+        boolean recoveryValid = false;
+        if (!totpValid && "LOGIN".equals(purpose)) recoveryValid = consumeRecoveryCode(username, code);
+        if (!totpValid && !recoveryValid)
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid authenticator or recovery code");
+
+        List<String> recoveryCodes = List.of();
         if ("ENROLL".equals(purpose)) {
             jdbc.update("""
                 UPDATE app_users SET mfa_enabled=TRUE,mfa_secret_encrypted=?,mfa_enrolled_at=now()
                 WHERE username=? AND enabled=TRUE
                 """, encrypted, username);
+            recoveryCodes = createRecoveryCodes(username);
         }
         jdbc.update("DELETE FROM auth_mfa_challenges WHERE id=?", challenge.get("id"));
-        audit.record(username, "ENROLL".equals(purpose) ? "MFA_ENROLLED" : "MFA_LOGIN_VERIFIED",
-            Map.of("method", "TOTP"));
+        audit.record(username, recoveryValid ? "MFA_RECOVERY_CODE_USED" :
+            ("ENROLL".equals(purpose) ? "MFA_ENROLLED" : "MFA_LOGIN_VERIFIED"),
+            Map.of("method", recoveryValid ? "RECOVERY_CODE" : "TOTP"));
+        return recoveryCodes;
+    }
+
+
+    private List<String> createRecoveryCodes(String username) {
+        UUID userId = jdbc.queryForObject("SELECT id FROM app_users WHERE username=?", UUID.class, username);
+        jdbc.update("DELETE FROM mfa_recovery_codes WHERE user_id=?", userId);
+        List<String> codes = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            byte[] bytes = new byte[12]; random.nextBytes(bytes);
+            String code = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).toUpperCase();
+            codes.add(code);
+            jdbc.update("INSERT INTO mfa_recovery_codes(id,user_id,code_hash) VALUES (?,?,?)",
+                UUID.randomUUID(), userId, TotpService.sha256(code));
+        }
+        return codes;
+    }
+
+    private boolean consumeRecoveryCode(String username, String suppliedCode) {
+        if (suppliedCode == null || !suppliedCode.matches("[A-Za-z0-9_-]{16}")) return false;
+        return jdbc.update("""
+            DELETE FROM mfa_recovery_codes
+            WHERE user_id=(SELECT id FROM app_users WHERE username=?) AND code_hash=?
+            """, username, TotpService.sha256(suppliedCode.toUpperCase())) == 1;
     }
 
     private Map<String,Object> findChallenge(String token, String expectedPurpose, String username) {
