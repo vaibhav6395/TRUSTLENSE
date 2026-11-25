@@ -35,7 +35,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - JSON policy studio with server-side simulation, draft/submit/review/publish lifecycle and independent two-administrator approval.
 - Historical decision replay against the original policy/evidence and Policy Impact Verification against up to 100 recent observed decisions.
 - Document metadata editing, custom ABAC attributes, required clearance, retention expiry and retirement with automatic grant revocation.
-- Administrator role assignment and user access-profile management, including clearance and custom attributes.
+- Administrator role and authority management, including custom role creation, supported platform permission assignment, role lifecycle controls and user role assignment; user access-profile management includes clearance and custom attributes.
 - Hash-linked audit events for access decisions, grant creation/revocation and document uploads.
 - React interface for sign-in, document upload/read/download, metadata editing, owner-controlled sharing, role/access-profile administration, live policy simulation and publication, historical replay, decisions and audit history.
 - Docker Compose development and production topology, plus CI build, test, dependency-audit and container-build jobs.
@@ -298,6 +298,10 @@ Demo seeding is disabled by default. Use only a disposable local database and sy
 ## Identity and MFA setup
 
 See [docs/IDENTITY-AND-MFA.md](docs/IDENTITY-AND-MFA.md) for the faculty approval flow, first-admin bootstrap, MFA enrollment/login sequence, recovery codes and account disablement behavior. The complete operator and user walkthrough is in [docs/USER-WORKFLOWS.md](docs/USER-WORKFLOWS.md).
+
+## Dynamic roles and authorities
+
+Administrators with the relevant authority can create custom role codes and assign supported platform authorities. The current authority catalogue is `PERM_USER_MANAGE`, `PERM_ROLE_MANAGE`, `PERM_POLICY_MANAGE` and `PERM_AUDIT_READ`. These protect account administration, role administration, policy governance and platform-wide audit access respectively. Built-in roles are protected from editing/deletion; a custom role cannot be deleted while assigned to users. Custom role names are also available to ABAC policy rules as subject roles.
 
 ## API highlights
 
