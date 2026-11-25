@@ -66,6 +66,7 @@ public class DocumentService {
             int required=((Number)doc.get("required_clearance")).intValue();
             java.util.Map<String,String> userAttributes=parseAttributes(actor.get("attributes"));
             java.util.Map<String,String> resourceAttributes=parseAttributes(doc.get("attributes"));
+            doc.put("attributes",resourceAttributes);
             Object retention=doc.get("retention_until");
             boolean retentionValid=true;
             if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
