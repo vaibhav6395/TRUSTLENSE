@@ -297,10 +297,17 @@ function PolicySandbox() {
   </>;
 }
 function Decisions({ decisions }: { decisions: DecisionItem[] }) {
-  return <><SectionHeading eyebrow="EXPLAINABILITY" title="Decision explorer" detail="Persisted backend decisions"/>
-    <div className="table-wrap"><table><thead><tr><th>TIME</th><th>DOCUMENT</th><th>ACTION</th><th>OUTCOME</th><th>REASON</th></tr></thead><tbody>
-      {decisions.map(d => <tr key={d.id}><td>{new Date(d.decidedAt).toLocaleString()}</td><td>{d.document ?? 'Unknown document'}</td><td>{d.action}</td><td><Badge tone={d.outcome === 'ALLOW' ? 'green' : 'red'}>{d.outcome}</Badge></td><td title={d.explanation}>{d.reasonCode}</td></tr>)}
-    </tbody></table>{decisions.length===0 && <div className="empty">No decisions recorded yet. Request access to a document to create one.</div>}</div>
+  const [replay,setReplay]=useState<Record<string,{recordedOutcome:string;replayedOutcome:string;matchesRecorded:boolean;reasonCode:string;explanation:string}>>({});
+  const [busy,setBusy]=useState('');const [error,setError]=useState('');
+  async function runReplay(id:string){setBusy(id);setError('');
+    try{const result=await apiPost<{recordedOutcome:string;replayedOutcome:string;matchesRecorded:boolean;reasonCode:string;explanation:string}>(`/api/v1/decisions/${id}/replay`,{});setReplay(v=>({...v,[id]:result}));}
+    catch(e){setError(e instanceof Error?e.message:'Historical replay failed');}finally{setBusy('');}}
+  return <><SectionHeading eyebrow="EXPLAINABILITY" title="Decision explorer" detail="Recorded outcomes and historical policy replay"/>
+    {error&&<div className="connection-notice">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>TIME</th><th>DOCUMENT</th><th>ACTION</th><th>OUTCOME</th><th>REASON</th><th>REPLAY</th></tr></thead><tbody>
+      {decisions.map(d=><tr key={d.id}><td>{new Date(d.decidedAt).toLocaleString()}</td><td>{d.document??'Unknown document'}</td><td>{d.action}</td><td><Badge tone={d.outcome==='ALLOW'?'green':'red'}>{d.outcome}</Badge></td><td title={d.explanation}>{d.reasonCode}</td><td><button className="secondary" disabled={busy===d.id} onClick={()=>void runReplay(d.id)}>{busy===d.id?'Replaying…':'Replay'}</button>{replay[d.id]&&<small>{replay[d.id].matchesRecorded?'MATCH':'MISMATCH'} · {replay[d.id].replayedOutcome} · {replay[d.id].reasonCode}</small>}</td></tr>)}
+    </tbody></table>{decisions.length===0&&<div className="empty">No decisions recorded yet.</div>}</div>
+    <p className="footnote">Replay uses the immutable policy version and evidence snapshot stored with the original decision. It does not repeat the original access action or deliver document content.</p>
   </>;
 }
 function AuditHistory({ audit }: { audit: AuditItem[] }) {
