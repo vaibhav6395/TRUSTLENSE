@@ -14,7 +14,7 @@ class AbacPolicyEngineTest {
         String actorDept,String docDept,String classification,int clearance,int required,
         Set<String> roles,Set<String> tags,boolean grant){
         return new AbacPolicyEngine.Context(enabled,active,owner,action,actorDept,docDept,classification,
-            clearance,required,roles,tags,grant);
+            clearance,required,roles,tags,java.util.Map.of(),java.util.Map.of(),grant);
     }
 
     @Test void disabledAccountAlwaysDeniedEvenIfOwner()throws Exception{
