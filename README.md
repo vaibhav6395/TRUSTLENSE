@@ -23,6 +23,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Database-backed login/logout with BCrypt, server-side sessions, CSRF bootstrap and session ID rotation.
 - Faculty signup requests are stored separately from active users; pending/rejected requests cannot authenticate.
 - SECURITY_ADMIN-only approval/rejection creates the faculty account and records the reviewer and decision in the hash-linked audit history.
+- Admin account inventory and enable/disable controls; self-disable and disabling the last active SECURITY_ADMIN are blocked, and active sessions are invalidated on their next request after disablement.
 - Password verification is only the first authentication stage. A short-lived, single-use MFA challenge must be completed before an authenticated session is issued.
 - TOTP enrollment and verification, AES-256-GCM encrypted MFA secrets, ten single-use SHA-256-hashed recovery codes, a five-attempt limit per MFA challenge, and a database-backed 5-failures/15-minute password login throttle.
 - Production first-admin bootstrap is performed by the backend from environment variables; no public administrator signup endpoint exists.
@@ -280,6 +281,7 @@ Demo seeding is disabled by default. Use only a disposable local database and sy
 - `POST /api/v1/auth/login` — verify password and issue a short-lived MFA challenge (not a session).
 - `POST /api/v1/auth/mfa/setup` and `POST /api/v1/auth/mfa/verify` — enroll or verify TOTP; only verification creates the authenticated session.
 - `GET /api/v1/admin/signup-requests`, `POST /api/v1/admin/signup-requests/{id}/approve`, `POST /api/v1/admin/signup-requests/{id}/reject` — SECURITY_ADMIN-only faculty review.
+- `GET /api/v1/admin/users`, `POST /api/v1/admin/users/{username}/disable`, `POST /api/v1/admin/users/{username}/enable` — SECURITY_ADMIN-only account lifecycle controls.
 - `POST /api/v1/documents` — authenticated multipart upload (title, classification, file).
 - `GET /api/v1/documents/{id}` — metadata read with a fresh READ decision.
 - `GET /api/v1/documents/{id}/content` — protected attachment download with a fresh DOWNLOAD decision.
