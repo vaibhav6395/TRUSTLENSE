@@ -194,12 +194,18 @@ public class DocumentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Required clearance must be between 0 and 5");
         if(request.tags()!=null&&(request.tags().size()>20||request.tags().stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid document tags");
+        java.sql.Timestamp retention=null;
+        if(request.retentionUntil()!=null&&!request.retentionUntil().isBlank()){
+            try{retention=java.sql.Timestamp.from(java.time.OffsetDateTime.parse(request.retentionUntil()).toInstant());}
+            catch(java.time.format.DateTimeParseException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"retentionUntil must be an ISO-8601 timestamp with timezone");}
+            if(!retention.toInstant().isAfter(java.time.Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Retention expiry must be in the future");
+        }
         jdbc.update("""
-            UPDATE documents SET title=?,description=?,classification=?,tags=?,required_clearance=?,updated_at=now()
+            UPDATE documents SET title=?,description=?,classification=?,tags=?,required_clearance=?,retention_until=?,updated_at=now()
             WHERE id=? AND status='ACTIVE'
             """,request.title().trim(),request.description()==null?"":request.description().trim(),
             request.classification(),request.tags()==null?new String[]{}:request.tags().toArray(String[]::new),
-            request.requiredClearance(),documentId);
+            request.requiredClearance(),retention,documentId);
         appendAudit(actorId,"DOCUMENT_METADATA_UPDATED",json(Map.of("documentId",documentId.toString(),
             "classification",request.classification(),"requiredClearance",request.requiredClearance())));
         return Map.of("id",documentId,"updated",true);
@@ -230,7 +236,7 @@ public class DocumentService {
         if(!Boolean.TRUE.equals(allowed)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Document owner or SECURITY_ADMIN role required");
     }
     public record DocumentMetadataRequest(String title,String description,String classification,
-        java.util.List<String> tags,int requiredClearance) {}
+        java.util.List<String> tags,int requiredClearance,String retentionUntil) {}
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> check(UUID documentId, String username, String action) {
