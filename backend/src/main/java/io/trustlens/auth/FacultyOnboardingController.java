@@ -82,9 +82,10 @@ public class FacultyOnboardingController {
         UUID userId = UUID.randomUUID();
         String username = (String) request.get("username");
         jdbc.update("""
-            INSERT INTO app_users(id,username,password_hash,display_name,department_code,enabled)
-            VALUES (?,?,?,?,?,TRUE)
-            """, userId, username, request.get("password_hash"), request.get("display_name"), request.get("department_code"));
+            INSERT INTO app_users(id,username,password_hash,display_name,department_code,enabled,institutional_email,faculty_identifier)
+            VALUES (?,?,?,?,?,TRUE,?,?)
+            """, userId, username, request.get("password_hash"), request.get("display_name"),
+            request.get("department_code"),request.get("institutional_email"),request.get("faculty_identifier"));
         ensureRole("FACULTY", "Faculty member");
         jdbc.update("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM app_roles WHERE code='FACULTY'",
             userId);
