@@ -132,8 +132,12 @@ public class DocumentService {
             INSERT INTO document_download_events(id,document_id,user_id,grant_id)
             VALUES (?, ?, (SELECT id FROM app_users WHERE username=?),
               (SELECT id FROM access_grants WHERE document_id=? AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
-               AND permission='DOWNLOAD' AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1))
+               AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at>now())
+               ORDER BY created_at DESC LIMIT 1))
             """,UUID.randomUUID(),documentId,username,documentId,username);
+        UUID actorId=userId(username);
+        appendAudit(actorId,"DOCUMENT_DOWNLOADED",json(Map.of("documentId",documentId.toString())));
         return new DownloadFile(path, (String) doc.get("title"), contentType, ((Number) sizeValue).longValue());
     }
 
@@ -191,6 +195,14 @@ public class DocumentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Title is required and must be at most 240 characters");
         if(request.classification()==null||!CLASSIFICATIONS.contains(request.classification()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid classification");
+        if("PUBLIC".equals(request.classification())||"RESTRICTED".equals(request.classification())){
+            Boolean admin=jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
+                """,Boolean.class,actorId);
+            if(!Boolean.TRUE.equals(admin)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only SECURITY_ADMIN may publish PUBLIC or RESTRICTED documents");
+        }
         if(request.requiredClearance()<0||request.requiredClearance()>5)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Required clearance must be between 0 and 5");
         if(request.tags()!=null&&(request.tags().size()>20||request.tags().stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
