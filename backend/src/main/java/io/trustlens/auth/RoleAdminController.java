@@ -62,6 +62,7 @@ public class RoleAdminController {
         if(request.description()==null||request.description().isBlank()||request.description().length()>200)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Role description is required and limited to 200 characters");
         validateAuthorities(request.authorities());
+        ensureAuthorityGrantAllowed(actor,request.authorities());
         if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM app_roles WHERE code=?)",Boolean.class,code)))
             throw new ResponseStatusException(HttpStatus.CONFLICT,"Role code already exists");
         UUID id=UUID.randomUUID();
@@ -81,6 +82,7 @@ public class RoleAdminController {
         if(request==null||request.description()==null||request.description().isBlank()||request.description().length()>200)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Role description is required and limited to 200 characters");
         validateAuthorities(request.authorities());
+        ensureAuthorityGrantAllowed(actor,request.authorities());
         jdbc.update("UPDATE app_roles SET description=? WHERE id=?",request.description().trim(),id);
         replaceAuthorities(id,request.authorities());
         audit.record(actor.getName(),"ROLE_UPDATED",Map.of("role",normalized,"authorities",safe(request.authorities())));
@@ -105,6 +107,11 @@ public class RoleAdminController {
         UUID id=jdbc.query("SELECT id FROM app_roles WHERE code=?",rs->rs.next()?rs.getObject(1,UUID.class):null,code);
         if(id==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Role not found");
         return id;
+    }
+    private void ensureAuthorityGrantAllowed(Authentication actor,Set<String> values) {
+        boolean superAdmin=actor.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_SECURITY_ADMIN"));
+        if(!superAdmin&&values!=null&&!values.isEmpty())
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only a SECURITY_ADMIN can grant platform authorities to a role");
     }
     private void validateAuthorities(Set<String> values) {
         Set<String> requested=values==null?Set.of():values;
