@@ -4,7 +4,7 @@
 
 TRUSTLENS is a hackathon prototype for secure campus document exchange. It combines server-side sessions, deny-by-default authorization, role and contextual checks, expiring/revocable grants, protected file delivery, explainable decisions, and hash-linked audit events.
 
-> **Status:** Expanded hackathon prototype with administrator-approved faculty onboarding and mandatory TOTP MFA. It is not production-certified. Full policy authoring/publication, PIV, historical replay, independent audit checkpoints, malware scanning, password-login rate limiting, recovery-code workflows and operational hardening remain incomplete.
+> **Status:** Expanded hackathon prototype with administrator-approved faculty onboarding, mandatory TOTP MFA, live RBAC/ABAC evaluation, controlled sharing, document lifecycle, policy versioning/approval, historical replay and Policy Impact Verification. It is not production-certified; campus SSO, malware scanning, independent audit checkpoints and operational hardening remain deployment requirements.
 
 ## Challenge coverage
 
@@ -37,7 +37,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Document metadata editing, custom ABAC attributes, required clearance, retention expiry and retirement with automatic grant revocation.
 - Administrator role assignment and user access-profile management, including clearance and custom attributes.
 - Hash-linked audit events for access decisions, grant creation/revocation and document uploads.
-- React interface for sign-in, document upload/read/download, grant management, decisions, audit history and a read-only synthetic policy sandbox.
+- React interface for sign-in, document upload/read/download, metadata editing, owner-controlled sharing, role/access-profile administration, live policy simulation and publication, historical replay, decisions and audit history.
 - Docker Compose development and production topology, plus CI build, test, dependency-audit and container-build jobs.
 
 ## Known gaps
@@ -57,7 +57,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - `frontend/` — React, TypeScript, Vite
 - `database/` — database notes
 - `api-contract/` — OpenAPI contract
-- `docs/` — architecture, threat model, setup, deployment, identity/MFA workflow and roadmap
+- `docs/` — architecture, threat model, setup, deployment, identity/MFA, access-control/sharing workflows and roadmap
 - `security-tests/` — security test plan
 
 ## Fetching and switching branches
