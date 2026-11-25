@@ -18,8 +18,9 @@ public class PolicyLifecycleService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final IdentityAuditService audit;
+    private final AbacPolicyEngine engine;
 
-    public PolicyLifecycleService(JdbcTemplate jdbc,ObjectMapper mapper,IdentityAuditService audit){this.jdbc=jdbc;this.mapper=mapper;this.audit=audit;}
+    public PolicyLifecycleService(JdbcTemplate jdbc,ObjectMapper mapper,IdentityAuditService audit,AbacPolicyEngine engine){this.jdbc=jdbc;this.mapper=mapper;this.audit=audit;this.engine=engine;}
 
     public record DraftRequest(JsonNode rules,String note) {}
     public record ReviewRequest(String note) {}
@@ -154,7 +155,7 @@ public class PolicyLifecycleService {
                     e.path("documentDepartment").asText(""),e.path("classification").asText("INTERNAL"),
                     e.path("actorClearance").asInt(),e.path("requiredClearance").asInt(),roles,tags,
                     e.path("activeGrant").asBoolean());
-                var next=new AbacPolicyEngine().evaluate(proposed,ctx);
+                var next=engine.evaluate(proposed,ctx);
                 boolean previous="ALLOW".equals(row.get("outcome"));
                 if(!previous&&next.allowed())gains++;else if(previous&&!next.allowed())losses++;else unchanged++;
                 comparisons.add(Map.of("decisionId",row.get("id").toString(),"previousOutcome",row.get("outcome"),
