@@ -32,3 +32,12 @@ CREATE TABLE auth_mfa_challenges (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_auth_mfa_challenge_expiry ON auth_mfa_challenges(expires_at);
+
+CREATE TABLE auth_login_attempts (
+    key_hash CHAR(64) PRIMARY KEY,
+    failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+    window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_until TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_auth_login_attempts_lock ON auth_login_attempts(locked_until);
