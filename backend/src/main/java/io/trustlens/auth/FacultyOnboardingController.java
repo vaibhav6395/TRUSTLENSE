@@ -37,6 +37,7 @@ public class FacultyOnboardingController {
     public record ReviewRequest(@Size(max=1000) String note) {}
 
     @PostMapping("/auth/signup")
+    @Transactional
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String,Object> signup(@Valid @RequestBody SignupRequest request) {
         String username = request.username().trim().toLowerCase();
