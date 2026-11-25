@@ -145,47 +145,40 @@ function Overview({ health, documents, decisions, audit, setPage }: {
     ].map(({name,detail,icon:Icon,page}) => <button className="module" key={name} onClick={() => setPage(page)}><div className="module-icon"><Icon size={20}/></div><div className="module-title"><h3>{name}</h3><ChevronRight size={16}/></div><p>{detail}</p><div className="module-foot">Open module <ArrowUpRight size={14}/></div></button>)}</section>
   </>;
 }
-function Documents({ documents, onRead, busyId, onUpload, onDownload }: {
+function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, username, isAdmin }: {
   documents: DocumentItem[]; onRead: (d: DocumentItem) => void; busyId: string;
-  onUpload: (file: File, title: string, classification: string) => Promise<void>;
-  onDownload: (d: DocumentItem) => Promise<void>;
+  onUpload: (file: File,title: string,classification: string,description: string,tags: string[],requiredClearance: number) => Promise<void>;
+  onDownload: (d: DocumentItem) => Promise<void>; onRetire: (d:DocumentItem)=>Promise<void>;
+  username: string; isAdmin: boolean;
 }) {
-  const [query,setQuery] = useState('');
-  const [file,setFile] = useState<File | null>(null);
-  const [title,setTitle] = useState('');
-  const [classification,setClassification] = useState('INTERNAL');
-  const [uploading,setUploading] = useState(false);
-  const [error,setError] = useState('');
-  const filtered = documents.filter(d => (d.title + d.owner + d.department + d.classification).toLowerCase().includes(query.toLowerCase()));
-  async function submitUpload(e: FormEvent) {
-    e.preventDefault(); setError('');
-    if (!file) { setError('Choose a file to upload.'); return; }
-    setUploading(true);
-    try { await onUpload(file, title, classification); setFile(null); setTitle(''); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Upload failed'); }
-    finally { setUploading(false); }
-  }
-  async function download(doc: DocumentItem) {
-    setError('');
-    try { await onDownload(doc); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Download failed'); }
-  }
-  return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Visible under your current identity"/>
-    <form className="toolbar" onSubmit={submitUpload}>
+  const [query,setQuery]=useState(''); const [file,setFile]=useState<File|null>(null);
+  const [title,setTitle]=useState(''); const [description,setDescription]=useState('');
+  const [tags,setTags]=useState('general'); const [requiredClearance,setRequiredClearance]=useState('0');
+  const [classification,setClassification]=useState('INTERNAL'); const [uploading,setUploading]=useState(false);
+  const [error,setError]=useState('');
+  const filtered=documents.filter(d=>(d.title+d.owner+d.department+d.classification+(d.tags??[]).join(' ')).toLowerCase().includes(query.toLowerCase()));
+  async function submitUpload(e:FormEvent){e.preventDefault();setError('');if(!file){setError('Choose a file to upload.');return;}setUploading(true);
+    try{await onUpload(file,title,classification,description,tags.split(',').map(t=>t.trim()).filter(Boolean),Number(requiredClearance));setFile(null);setTitle('');setDescription('');}
+    catch(err){setError(err instanceof Error?err.message:'Upload failed');}finally{setUploading(false);}}
+  async function download(doc:DocumentItem){setError('');try{await onDownload(doc);}catch(err){setError(err instanceof Error?err.message:'Download failed');}}
+  async function retire(doc:DocumentItem){if(!window.confirm(`Retire "${doc.title}"? All active grants will be revoked.`))return;setError('');
+    try{await onRetire(doc);}catch(err){setError(err instanceof Error?err.message:'Retirement failed');}}
+  return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Private storage, classification and ABAC metadata"/>
+    <form className="toolbar document-upload-form" onSubmit={submitUpload}>
       <input aria-label="Document title" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Document title" required maxLength={240}/>
-      <select aria-label="Classification" value={classification} onChange={e=>setClassification(e.target.value)}>
-        <option>PUBLIC</option><option>INTERNAL</option><option>CONFIDENTIAL</option><option>RESTRICTED</option>
-      </select>
-      <input aria-label="Choose file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,application/pdf,text/plain,image/png,image/jpeg" onChange={e=>setFile(e.target.files?.[0] ?? null)} required/>
-      <button className="primary" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</button>
+      <select aria-label="Classification" value={classification} onChange={e=>setClassification(e.target.value)}><option>PUBLIC</option><option>INTERNAL</option><option>CONFIDENTIAL</option><option>RESTRICTED</option></select>
+      <input aria-label="Description" value={description} onChange={e=>setDescription(e.target.value)} placeholder="Description" maxLength={1000}/>
+      <input aria-label="Tags" value={tags} onChange={e=>setTags(e.target.value)} placeholder="Tags, comma separated"/>
+      <select aria-label="Required clearance" value={requiredClearance} onChange={e=>setRequiredClearance(e.target.value)}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>Clearance {n}</option>)}</select>
+      <input aria-label="Choose file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,application/pdf,text/plain,image/png,image/jpeg" onChange={e=>setFile(e.target.files?.[0]??null)} required/>
+      <button className="primary" disabled={uploading}>{uploading?'Uploading…':'Upload document'}</button>
     </form>
-    <p className="footnote"><LockKeyhole size={14}/> Private uploads accept PDF, TXT, PNG and JPEG files up to 10 MB. Files are stored outside the public web root.</p>
-    {error && <div className="connection-notice">{error}</div>}
-    <div className="toolbar"><input className="search-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search visible documents"/></div>
-    <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>OWNER</th><th>DEPARTMENT</th><th>CLASSIFICATION</th><th>ACCESS</th></tr></thead><tbody>
-      {filtered.map(d => <tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.id}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification === 'PUBLIC' ? 'green' : d.classification === 'RESTRICTED' ? 'red' : 'amber'}>{d.classification}</Badge></td><td><div className="toolbar"><button className="secondary" disabled={busyId === d.id} onClick={() => onRead(d)}>{busyId === d.id ? 'Checking…' : 'Request read'}</button><button className="secondary" onClick={() => void download(d)}>Download</button></div></td></tr>)}
-    </tbody></table>{filtered.length===0 && <div className="empty">No visible documents found.</div>}</div>
-    <p className="footnote"><LockKeyhole size={14}/> Every read and download is checked by the backend. Old application URLs do not bypass current grant checks.</p>
+    <p className="footnote"><LockKeyhole size={14}/> PDF, TXT, PNG and JPEG up to 10 MB. Department, classification, tags and required clearance are checked server-side.</p>
+    {error&&<div className="connection-notice">{error}</div>}
+    <div className="toolbar"><input className="search-input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search visible documents"/></div>
+    <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>OWNER</th><th>DEPARTMENT</th><th>CLASSIFICATION / CLEARANCE</th><th>ACCESS</th></tr></thead><tbody>
+      {filtered.map(d=><tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.description||d.id}</small><small>{(d.tags??[]).join(' · ')}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification==='PUBLIC'?'green':d.classification==='RESTRICTED'?'red':'amber'}>{d.classification}</Badge><small>Clearance {d.required_clearance??0}</small></td><td><div className="toolbar"><button className="secondary" disabled={busyId===d.id} onClick={()=>onRead(d)}>Read</button><button className="secondary" onClick={()=>void download(d)}>Download</button>{(isAdmin||d.ownerUsername===username)&&<button className="secondary" onClick={()=>void retire(d)}>Retire</button>}</div></td></tr>)}
+    </tbody></table>{filtered.length===0&&<div className="empty">No visible documents found.</div>}</div>
   </>;
 }
 type PolicyVersion = {
@@ -481,8 +474,10 @@ export default function App() {
       {message && <div className="connection-notice"><Check size={15}/>{message}</div>}
       {page==='Overview' && <Overview health={health} documents={documents} decisions={decisions} audit={audit} setPage={setPage}/>}
       {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}
-        onUpload={async (file,title,classification) => { const form=new FormData(); form.append('file',file); form.append('title',title); form.append('classification',classification); await apiUpload('/api/v1/documents',form); await refreshData(); setMessage('Document uploaded to private storage.'); }}
-        onDownload={async doc => { await apiDownload(`/api/v1/documents/${doc.id}/content`,doc.title); await refreshData(); setMessage('Download authorized by the current server-side policy.'); }}/>}
+        username={user.username} isAdmin={user.authorities.includes('ROLE_SECURITY_ADMIN')}
+        onUpload={async (file,title,classification,description,tags,requiredClearance) => { const form=new FormData(); form.append('file',file); form.append('title',title); form.append('classification',classification); form.append('description',description); tags.forEach(tag=>form.append('tags',tag)); form.append('requiredClearance',String(requiredClearance)); await apiUpload('/api/v1/documents',form); await refreshData(); setMessage('Document uploaded to private storage.'); }}
+        onDownload={async doc => { await apiDownload(`/api/v1/documents/${doc.id}/content`,doc.title); await refreshData(); setMessage('Download authorized by the current server-side policy.'); }}
+        onRetire={async doc=>{await apiPost(`/api/v1/documents/${doc.id}/retire`,{});await refreshData();setMessage('Document retired and active grants revoked.');}}/>}
       
       {page==='People & roles' && <People user={user} documents={documents} onChanged={refreshData}/>}
       {page==='Policy sandbox' && <PolicySandbox/>}
