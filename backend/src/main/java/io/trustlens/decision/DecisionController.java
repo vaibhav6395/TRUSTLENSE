@@ -66,6 +66,7 @@ public class DecisionController {
                 (String)row.get("action"),e.path("actorDepartment").asText(""),
                 e.path("documentDepartment").asText(""),e.path("classification").asText("INTERNAL"),
                 e.path("actorClearance").asInt(),e.path("requiredClearance").asInt(),roles,tags,
+                attributes(e.path("subjectAttributes")),attributes(e.path("resourceAttributes")),
                 e.path("activeGrant").asBoolean());
             UUID version=(UUID)row.get("policy_version_id");
             var replay=engine.evaluate(policies.rulesForVersion(version),context);
@@ -76,6 +77,14 @@ public class DecisionController {
                 "policyVersionId",version==null?"BASELINE":version.toString(),
                 "reasonCode",replay.reasonCode(),"explanation",replay.explanation());
         }catch(Exception ex){throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"Decision evidence cannot be replayed");}
+    }
+
+    private java.util.Map<String,String> attributes(JsonNode node) {
+        java.util.Map<String,String> result=new java.util.HashMap<>();
+        if(node!=null&&node.isObject())node.fields().forEachRemaining(entry->{
+            if(entry.getValue().isValueNode()&&!entry.getValue().isNull())result.put(entry.getKey(),entry.getValue().asText());
+        });
+        return result;
     }
 
     private void requireDecisionAccess(UUID id,String username) {
