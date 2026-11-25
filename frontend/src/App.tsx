@@ -145,10 +145,11 @@ function Overview({ health, documents, decisions, audit, setPage }: {
     ].map(({name,detail,icon:Icon,page}) => <button className="module" key={name} onClick={() => setPage(page)}><div className="module-icon"><Icon size={20}/></div><div className="module-title"><h3>{name}</h3><ChevronRight size={16}/></div><p>{detail}</p><div className="module-foot">Open module <ArrowUpRight size={14}/></div></button>)}</section>
   </>;
 }
-function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, username, isAdmin }: {
+function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, onUpdate, username, isAdmin }: {
   documents: DocumentItem[]; onRead: (d: DocumentItem) => void; busyId: string;
   onUpload: (file: File,title: string,classification: string,description: string,tags: string[],requiredClearance: number) => Promise<void>;
   onDownload: (d: DocumentItem) => Promise<void>; onRetire: (d:DocumentItem)=>Promise<void>;
+  onUpdate:(d:DocumentItem,payload:{title:string;description:string;classification:string;tags:string[];requiredClearance:number})=>Promise<void>;
   username: string; isAdmin: boolean;
 }) {
   const [query,setQuery]=useState(''); const [file,setFile]=useState<File|null>(null);
@@ -156,6 +157,12 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
   const [tags,setTags]=useState('general'); const [requiredClearance,setRequiredClearance]=useState('0');
   const [classification,setClassification]=useState('INTERNAL'); const [uploading,setUploading]=useState(false);
   const [error,setError]=useState('');
+  const [editing,setEditing]=useState<DocumentItem|null>(null);
+  const [editTitle,setEditTitle]=useState('');
+  const [editDescription,setEditDescription]=useState('');
+  const [editClassification,setEditClassification]=useState('INTERNAL');
+  const [editTags,setEditTags]=useState('');
+  const [editClearance,setEditClearance]=useState('0');
   const filtered=documents.filter(d=>(d.title+d.owner+d.department+d.classification+(d.tags??[]).join(' ')).toLowerCase().includes(query.toLowerCase()));
   async function submitUpload(e:FormEvent){e.preventDefault();setError('');if(!file){setError('Choose a file to upload.');return;}setUploading(true);
     try{await onUpload(file,title,classification,description,tags.split(',').map(t=>t.trim()).filter(Boolean),Number(requiredClearance));setFile(null);setTitle('');setDescription('');}
@@ -163,6 +170,10 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
   async function download(doc:DocumentItem){setError('');try{await onDownload(doc);}catch(err){setError(err instanceof Error?err.message:'Download failed');}}
   async function retire(doc:DocumentItem){if(!window.confirm(`Retire "${doc.title}"? All active grants will be revoked.`))return;setError('');
     try{await onRetire(doc);}catch(err){setError(err instanceof Error?err.message:'Retirement failed');}}
+  function beginEdit(doc:DocumentItem){setEditing(doc);setEditTitle(doc.title);setEditDescription(doc.description??'');setEditClassification(doc.classification);setEditTags((doc.tags??[]).join(', '));setEditClearance(String(doc.required_clearance??0));}
+  async function saveEdit(e:FormEvent){e.preventDefault();if(!editing)return;setUploading(true);setError('');
+    try{await onUpdate(editing,{title:editTitle,description:editDescription,classification:editClassification,tags:editTags.split(',').map(t=>t.trim()).filter(Boolean),requiredClearance:Number(editClearance)});setEditing(null);}
+    catch(err){setError(err instanceof Error?err.message:'Metadata update failed');}finally{setUploading(false);}}
   return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Private storage, classification and ABAC metadata"/>
     <form className="toolbar document-upload-form" onSubmit={submitUpload}>
       <input aria-label="Document title" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Document title" required maxLength={240}/>
@@ -175,9 +186,17 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
     </form>
     <p className="footnote"><LockKeyhole size={14}/> PDF, TXT, PNG and JPEG up to 10 MB. Department, classification, tags and required clearance are checked server-side.</p>
     {error&&<div className="connection-notice">{error}</div>}
+    {editing&&<form className="panel toolbar" onSubmit={saveEdit}>
+      <strong>Edit document metadata</strong><input aria-label="Edit title" value={editTitle} onChange={e=>setEditTitle(e.target.value)} required maxLength={240}/>
+      <input aria-label="Edit description" value={editDescription} onChange={e=>setEditDescription(e.target.value)} maxLength={1000}/>
+      <select aria-label="Edit classification" value={editClassification} onChange={e=>setEditClassification(e.target.value)}><option>PUBLIC</option><option>INTERNAL</option><option>CONFIDENTIAL</option><option>RESTRICTED</option></select>
+      <input aria-label="Edit tags" value={editTags} onChange={e=>setEditTags(e.target.value)}/>
+      <select aria-label="Edit clearance" value={editClearance} onChange={e=>setEditClearance(e.target.value)}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>Clearance {n}</option>)}</select>
+      <button className="primary" disabled={uploading}>Save metadata</button><button type="button" className="secondary" onClick={()=>setEditing(null)}>Cancel</button>
+    </form>}
     <div className="toolbar"><input className="search-input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search visible documents"/></div>
     <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>OWNER</th><th>DEPARTMENT</th><th>CLASSIFICATION / CLEARANCE</th><th>ACCESS</th></tr></thead><tbody>
-      {filtered.map(d=><tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.description||d.id}</small><small>{(d.tags??[]).join(' · ')}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification==='PUBLIC'?'green':d.classification==='RESTRICTED'?'red':'amber'}>{d.classification}</Badge><small>Clearance {d.required_clearance??0}</small></td><td><div className="toolbar"><button className="secondary" disabled={busyId===d.id} onClick={()=>onRead(d)}>Read</button><button className="secondary" onClick={()=>void download(d)}>Download</button>{(isAdmin||d.ownerUsername===username)&&<button className="secondary" onClick={()=>void retire(d)}>Retire</button>}</div></td></tr>)}
+      {filtered.map(d=><tr key={d.id}><td><div className="doc-cell"><div className="file-icon"><FileText size={17}/></div><div><strong>{d.title}</strong><small>{d.description||d.id}</small><small>{(d.tags??[]).join(' · ')}</small></div></div></td><td>{d.owner}</td><td>{d.department}</td><td><Badge tone={d.classification==='PUBLIC'?'green':d.classification==='RESTRICTED'?'red':'amber'}>{d.classification}</Badge><small>Clearance {d.required_clearance??0}</small></td><td><div className="toolbar"><button className="secondary" disabled={busyId===d.id} onClick={()=>onRead(d)}>Read</button><button className="secondary" onClick={()=>void download(d)}>Download</button>{(isAdmin||d.ownerUsername===username)&&<><button className="secondary" onClick={()=>beginEdit(d)}>Edit</button><button className="secondary" onClick={()=>void retire(d)}>Retire</button></>}</div></td></tr>)}
     </tbody></table>{filtered.length===0&&<div className="empty">No visible documents found.</div>}</div>
   </>;
 }
@@ -485,7 +504,8 @@ export default function App() {
         username={user.username} isAdmin={user.authorities.includes('ROLE_SECURITY_ADMIN')}
         onUpload={async (file,title,classification,description,tags,requiredClearance) => { const form=new FormData(); form.append('file',file); form.append('title',title); form.append('classification',classification); form.append('description',description); tags.forEach(tag=>form.append('tags',tag)); form.append('requiredClearance',String(requiredClearance)); await apiUpload('/api/v1/documents',form); await refreshData(); setMessage('Document uploaded to private storage.'); }}
         onDownload={async doc => { await apiDownload(`/api/v1/documents/${doc.id}/content`,doc.title); await refreshData(); setMessage('Download authorized by the current server-side policy.'); }}
-        onRetire={async doc=>{await apiPost(`/api/v1/documents/${doc.id}/retire`,{});await refreshData();setMessage('Document retired and active grants revoked.');}}/>}
+        onRetire={async doc=>{await apiPost(`/api/v1/documents/${doc.id}/retire`,{});await refreshData();setMessage('Document retired and active grants revoked.');}}
+        onUpdate={async(doc,payload)=>{await apiRequest(`/api/v1/documents/${doc.id}`,{method:'PATCH',body:JSON.stringify(payload)});await refreshData();setMessage('Document metadata updated.');}}/>}
       
       {page==='People & roles' && <People user={user} documents={documents} onChanged={refreshData}/>}
       {page==='Policy sandbox' && user.authorities.includes('ROLE_SECURITY_ADMIN') && <PolicySandbox/>}
