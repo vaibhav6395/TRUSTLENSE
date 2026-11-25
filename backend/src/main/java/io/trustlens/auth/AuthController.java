@@ -5,8 +5,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -16,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -24,13 +27,16 @@ public class AuthController {
     private final JdbcTemplate jdbc;
     private final MfaChallengeService challenges;
     private final UserDetailsService users;
+    private final LoginAttemptService loginAttempts;
 
     public AuthController(AuthenticationManager authenticationManager, JdbcTemplate jdbc,
-                          MfaChallengeService challenges, UserDetailsService users) {
+                          MfaChallengeService challenges, UserDetailsService users,
+                          LoginAttemptService loginAttempts) {
         this.authenticationManager = authenticationManager;
         this.jdbc = jdbc;
         this.challenges = challenges;
         this.users = users;
+        this.loginAttempts = loginAttempts;
     }
 
     public record LoginRequest(String username, String password) {}
@@ -43,13 +49,24 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody LoginRequest body) {
+    public Map<String, Object> login(@RequestBody LoginRequest body, HttpServletRequest request) {
         if (body.username() == null || body.password() == null) {
             throw new IllegalArgumentException("Username and password are required");
         }
-        Authentication authenticated = authenticationManager.authenticate(
-            UsernamePasswordAuthenticationToken.unauthenticated(body.username().trim(), body.password())
-        );
+        String username = body.username().trim();
+        String remoteAddress = request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
+        if (loginAttempts.isBlocked(username, remoteAddress))
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many failed sign-in attempts. Try again in 15 minutes.");
+        Authentication authenticated;
+        try {
+            authenticated = authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(username, body.password())
+            );
+            loginAttempts.succeeded(username, remoteAddress);
+        } catch (AuthenticationException ex) {
+            loginAttempts.failed(username, remoteAddress);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
+        }
         Boolean enabled = jdbc.queryForObject("SELECT mfa_enabled FROM app_users WHERE username=? AND enabled=TRUE",
             Boolean.class, authenticated.getName());
         String purpose = Boolean.TRUE.equals(enabled) ? "LOGIN" : "ENROLL";
