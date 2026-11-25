@@ -89,10 +89,11 @@ public class AccountAdminController {
     public Map<String,Object> addRole(@PathVariable String username,@PathVariable String roleCode,Authentication actor) {
         Map<String,Object> target=target(username);
         String role=roleCode.toUpperCase();
-        if(!List.of("FACULTY","SECURITY_ADMIN","STUDENT","STAFF").contains(role))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unsupported role");
+        if(!role.matches("[A-Z][A-Z0-9_]{1,49}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid role code");
         Integer roleId=jdbc.queryForObject("SELECT COUNT(*) FROM app_roles WHERE code=?",Integer.class,role);
-        if(roleId==null||roleId==0) jdbc.update("INSERT INTO app_roles(id,code,description) VALUES (?,? ,?) ON CONFLICT(code) DO NOTHING",UUID.randomUUID(),role,role);
+        if(roleId==null||roleId==0)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Role does not exist; create it in Role management first");
         jdbc.update("INSERT INTO user_roles(user_id,role_id) SELECT id,(SELECT id FROM app_roles WHERE code=?) FROM app_users WHERE username=? ON CONFLICT DO NOTHING",role,username);
         audit.record(actor.getName(),"ROLE_ASSIGNED",Map.of("username",username,"role",role));
         return Map.of("username",username,"role",role,"assigned",true);
