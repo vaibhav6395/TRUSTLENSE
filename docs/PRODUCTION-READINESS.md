@@ -31,11 +31,17 @@ These capabilities are present in the repository; they are not a claim of produc
 - [x] Run backend tests, frontend tests/build, dependency audit, secret scan and both container image builds in GitHub Actions.
 - [x] Run the end-to-end smoke test proving revoked READ and DOWNLOAD grants block a still-authenticated session and reused file URL.
 - [ ] Add a dedicated integration test proving demo users are never seeded under the production profile.
-- [ ] Add end-to-end tests for pending faculty login denial, admin approval, MFA enrollment/recovery and account disablement.
-- [ ] Add browser/database integration tests for policy approval separation, custom attribute matching, download quotas, document retention and historical replay/PIV.
+- [ ] Add end-to-end tests for pending faculty login denial, admin approval and full MFA enrollment/recovery.
+- [x] Add focused unit tests for per-request role refresh, disabled/deleted account rejection and anonymous filter pass-through.
+- [x] Add focused ABAC unit tests for guardrails, role/department/classification/tag/custom-attribute matching, deny-by-default, priority ordering, wildcard actions and grant-permission conditions.
+- [ ] Add browser/database integration tests for policy approval separation, download quotas, document retention and historical replay/PIV.
 - [ ] Validate production Compose configuration on the target host and verify the HTTPS reverse proxy, persistent volumes and backup restore.
 
-Latest recorded CI run for the production branch completed successfully across all five jobs: frontend, backend, secret-scan, containers and zero-trust-smoke. This validates the CI pipeline, not an independently operated deployment.
+Latest recorded CI run for the current feature branch is [run #112](https://github.com/vaibhav6395/TRUSTLENSE/actions/runs/45537059083), commit f8d307bd6cf8642f95dcc52070e61db3e8210db7. All five jobs passed: backend tests, frontend build/tests/dependency audit, secret scan, backend/frontend container builds, and the active-session grant-revocation smoke test. This validates the checked-in CI pipeline only; it is not an independently operated deployment or production security certification.
+
+## Workflow documentation
+
+The canonical user/admin demonstration sequence is documented in [USER-WORKFLOWS.md](USER-WORKFLOWS.md). Architecture and authorization semantics are described in [architecture.md](architecture.md) and [ACCESS-CONTROL-AND-SHARING.md](ACCESS-CONTROL-AND-SHARING.md).
 
 ## Phase 2 — Institutional identity and lifecycle
 
