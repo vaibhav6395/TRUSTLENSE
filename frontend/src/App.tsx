@@ -392,7 +392,7 @@ function RoleManager() {
     <div className="table-wrap"><table><thead><tr><th>ROLE</th><th>AUTHORITIES</th><th>ASSIGNED USERS</th><th>ACTIONS</th></tr></thead><tbody>{roles.map(r=><tr key={r.code}><td><strong>{r.code}</strong><small>{r.description}</small>{r.systemManaged&&<Badge tone="green">BUILT-IN</Badge>}</td><td>{(r.authorities??[]).length?(r.authorities??[]).join(', '):'No platform authorities'}</td><td>{r.assignedUsers}</td><td>{!r.systemManaged&&<div className="toolbar"><button className="secondary" disabled={busy} onClick={()=>beginEdit(r)}>Edit</button><button className="secondary" disabled={busy||r.assignedUsers>0} onClick={()=>void remove(r.code)}>Delete</button></div>}</td></tr>)}</tbody></table></div>
   </section>;
 }
-function AdminUsers() {
+function AdminUsers({canAssignRoles}:{canAssignRoles:boolean}) {
   const [users,setUsers]=useState<ManagedUser[]>([]);const [roles,setRoles]=useState<ManagedRole[]>([]);
   const [error,setError]=useState('');const [busy,setBusy]=useState('');
   const [roleChoice,setRoleChoice]=useState<Record<string,string>>({});
@@ -408,9 +408,8 @@ function AdminUsers() {
     {error&&<div className="connection-notice">{error}</div>}
     <div className="table-wrap"><table><thead><tr><th>ACCOUNT</th><th>ROLES</th><th>DEPARTMENT / CLEARANCE</th><th>MFA / STATUS</th><th>ACTIONS</th></tr></thead><tbody>
       {users.map(u=><tr key={u.id}><td><strong>{u.displayName}</strong><small>{u.username}</small><small>{u.institutionalEmail??''}</small></td>
-        <td>{u.roles||'No role'}<div className="toolbar"><select aria-label="Role assignment" value={roleChoice[u.username]??roles[0]?.code??''} onChange={e=>setRoleChoice(v=>({...v,[u.username]:e.target.value}))}><option value="" disabled>Select role</option>{roles.map(role=><option key={role.code} value={role.code}>{role.code}</option>)}</select><button className="secondary" disabled={busy===u.username||!roles.length} onClick={()=>void assignRole(u.username,roleChoice[u.username]??roles[0].code)}>Add</button></div>
-          <div className="toolbar">{u.roles.split(',').filter(Boolean).map(role=><button key={role} className="secondary" disabled={busy===u.username} onClick={()=>void assignRole(u.username,role,true)}>Remove {role}</button>)}</div>
-        </td>
+        <td>{u.roles||'No role'}{canAssignRoles&&<><div className="toolbar"><select aria-label="Role assignment" value={roleChoice[u.username]??roles[0]?.code??''} onChange={e=>setRoleChoice(v=>({...v,[u.username]:e.target.value}))}><option value="" disabled>Select role</option>{roles.map(role=><option key={role.code} value={role.code}>{role.code}</option>)}</select><button className="secondary" disabled={busy===u.username||!roles.length} onClick={()=>void assignRole(u.username,roleChoice[u.username]??roles[0].code)}>Add</button></div>
+          <div className="toolbar">{u.roles.split(',').filter(Boolean).map(role=><button key={role} className="secondary" disabled={busy===u.username} onClick={()=>void assignRole(u.username,role,true)}>Remove {role}</button>)}</div></>}</td>
         <td><input aria-label="Department" value={profiles[u.username]?.departmentCode??''} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{clearanceLevel:0,attributes:'{}'}),departmentCode:e.target.value}}))}/><select aria-label="Clearance" value={profiles[u.username]?.clearanceLevel??0} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{departmentCode:u.departmentCode}),clearanceLevel:Number(e.target.value),attributes:profiles[u.username]?.attributes??'{}'}}))}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select><textarea aria-label="Custom attributes" rows={3} value={profiles[u.username]?.attributes??'{}'} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{departmentCode:u.departmentCode,clearanceLevel:u.clearanceLevel}),attributes:e.target.value}}))}/><button className="secondary" disabled={busy===u.username} onClick={()=>void saveProfile(u.username)}>Save profile</button></td>
         <td><Badge tone={u.mfaEnabled?'green':'amber'}>{u.mfaEnabled?'MFA ON':'MFA SETUP'}</Badge><Badge tone={u.enabled?'green':'red'}>{u.enabled?'ACTIVE':'DISABLED'}</Badge></td>
         <td><button className="secondary" disabled={busy===u.username} onClick={()=>void toggle(u)}>{busy===u.username?'Saving…':u.enabled?'Disable':'Enable'}</button></td>
@@ -443,7 +442,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
     catch(e){setError(e instanceof Error?e.message:'Share creation failed');}finally{setBusy('');}}
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="RBAC, ABAC attributes and controlled sharing"/>
     {error&&<div className="connection-notice">{error}</div>}
-    {canManageUsers&&<><FacultyRequests/><AdminUsers/>
+    {canManageUsers&&<><FacultyRequests/><AdminUsers canAssignRoles={canManageRoles}/>
       <div className="notice"><ShieldCheck size={16}/> Administrators can assign roles and access profiles. Policy publication requires a second administrator's independent approval.</div>
     </>}
     {canManageRoles&&<RoleManager/>}
