@@ -27,6 +27,7 @@ CREATE TABLE auth_mfa_challenges (
     token_hash CHAR(64) NOT NULL UNIQUE,
     purpose VARCHAR(16) NOT NULL CHECK (purpose IN ('ENROLL','LOGIN')),
     pending_secret_encrypted TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
