@@ -60,6 +60,7 @@ public class DocumentService {
             java.util.Set<String> tags=new java.util.HashSet<>();
             Object raw=doc.get("tags");
             if(raw instanceof String[] arr) java.util.Collections.addAll(tags,arr);
+            else if(raw instanceof java.sql.Array sqlArray) { try { java.util.Collections.addAll(tags,(String[])sqlArray.getArray()); } catch(java.sql.SQLException ignored) { } }
             int clearance=((Number)actor.get("clearance_level")).intValue();
             int required=((Number)doc.get("required_clearance")).intValue();
             Object retention=doc.get("retention_until");
@@ -187,7 +188,7 @@ public class DocumentService {
         requireDocumentManager(documentId,actorId);
         if(request.title()==null||request.title().isBlank()||request.title().length()>240)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Title is required and must be at most 240 characters");
-        if(!CLASSIFICATIONS.contains(request.classification()))
+        if(request.classification()==null||!CLASSIFICATIONS.contains(request.classification()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid classification");
         if(request.requiredClearance()<0||request.requiredClearance()>5)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Required clearance must be between 0 and 5");
