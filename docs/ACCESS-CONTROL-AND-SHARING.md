@@ -1,4 +1,4 @@
-# TRUSTLENS access control, sharing and policy lifecycle
+# TRUSTLENSE access control, sharing and policy lifecycle
 
 ## Request architecture
 
@@ -50,7 +50,7 @@ Supported attributes:
 - Effects: ALLOW or DENY.
 - Priority: larger values are evaluated first.
 
-The system guardrails execute before configurable rules and cannot be bypassed by a policy author. The engine never evaluates client-side rules as authorization.
+The system guardrails execute before configurable rules and cannot be bypassed by a policy author. The engine never evaluates client-side rules as authorization. For a matching rule, the highest-priority matching rule wins; avoid ambiguous overlapping rules with equal priority.
 
 ## Faculty sharing workflow
 
@@ -99,6 +99,18 @@ SECURITY_ADMIN can assign FACULTY, STUDENT, STAFF and SECURITY_ADMIN roles; chan
 - `POST /api/v1/admin/users/{username}/roles/{roleCode}`, `DELETE` same path
 - `PATCH /api/v1/admin/users/{username}/access-profile`
 - `POST /api/v1/decisions/{id}/replay`
+
+## Operational walkthrough
+
+1. Start the local stack and sign in using a synthetic demo account; complete MFA enrollment on first sign-in.
+2. Submit a faculty request. Sign in as SECURITY_ADMIN in a separate browser session and review the pending request.
+3. Approve or reject the request. Sign in as the approved faculty user and enroll TOTP before continuing.
+4. Upload a synthetic document. Set classification, required clearance, tags and any retention date.
+5. Create a grant for the recipient, selecting READ or DOWNLOAD and any start/expiry/quota constraints.
+6. Sign in as the recipient and test metadata read and file download separately; READ does not imply DOWNLOAD.
+7. Revoke the grant as an authorized owner, grant creator or administrator. Retry both the document read API and content endpoint using the same still-authenticated session. The next request must be denied and recorded.
+8. As a SECURITY_ADMIN, create and simulate a policy draft. Submit it, then use a different SECURITY_ADMIN account to approve or reject it.
+9. Inspect decision and audit history. Replay a decision against its original evidence/policy and run PIV against a bounded historical sample.
 
 ## Security and deployment limits
 
