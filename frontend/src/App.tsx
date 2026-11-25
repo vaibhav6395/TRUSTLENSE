@@ -218,6 +218,7 @@ function PolicySandbox() {
   const [versions,setVersions] = useState<PolicyVersion[]>([]);
   const [activeVersion,setActiveVersion] = useState('');
   const [results,setResults] = useState<{id:string;allowed:boolean;reasonCode:string;explanation:string}[]>([]);
+  const [impact,setImpact] = useState<{sampleSize:number;gainedAccess:number;lostAccess:number;unchanged:number;comparisons:{decisionId:string;previousOutcome:string;proposedOutcome:string;changed:boolean;reasonCode:string}[]}|null>(null);
   const [error,setError] = useState('');
   const [busy,setBusy] = useState('');
   async function load() {
@@ -258,6 +259,12 @@ function PolicySandbox() {
     } catch(e) {setError(e instanceof Error?e.message:'Policy review failed');}
     finally {setBusy('');}
   }
+  async function verifyImpact(id:string) {
+    setBusy(id);setError('');
+    try { setImpact(await apiPost('/api/v1/policies/'+id+'/impact-verify',{})); }
+    catch(e) { setError(e instanceof Error?e.message:'Impact verification failed'); }
+    finally { setBusy(''); }
+  }
   const allowed=results.filter(r=>r.allowed).length;
   return <><SectionHeading eyebrow="POLICY INTELLIGENCE" title="Policy studio" detail="Live ABAC simulation, versioning and independent publication"/>
     <div className="notice"><ShieldAlert size={16}/> Only SECURITY_ADMIN can manage policies. Simulation uses the backend evaluator. A different administrator must approve a submitted version; the author cannot approve their own change. System guardrails always deny disabled accounts, inactive documents and insufficient clearance.</div>
@@ -288,10 +295,16 @@ function PolicySandbox() {
         {results.map(r=><tr key={r.id}><td>{r.id}</td><td><Badge tone={r.allowed?'green':'red'}>{r.allowed?'ALLOW':'DENY'}</Badge></td><td>{r.reasonCode}</td><td>{r.explanation}</td></tr>)}
       </tbody></table></div>
     </section>}
+    {impact&&<section className="panel">
+      <div className="panel-heading"><div><span className="eyebrow">POLICY IMPACT VERIFICATION</span><h3>Observed decision comparison</h3></div><Activity size={19}/></div>
+      <div className="metrics sandbox-metrics"><div className="metric"><span className="metric-top">Gained access</span><strong>{impact.gainedAccess}</strong></div><div className="metric"><span className="metric-top">Lost access</span><strong>{impact.lostAccess}</strong></div><div className="metric"><span className="metric-top">Unchanged</span><strong>{impact.unchanged}</strong></div></div>
+      <p className="muted">Compared the selected published rules against up to 100 recent recorded decision evidence snapshots. This is a replay-based impact signal, not proof of future outcomes.</p>
+      <div className="table-wrap"><table><thead><tr><th>DECISION</th><th>RECORDED</th><th>PROPOSED</th><th>CHANGE</th><th>REASON</th></tr></thead><tbody>{impact.comparisons.map(row=><tr key={row.decisionId}><td>{row.decisionId.slice(0,8)}</td><td>{row.previousOutcome}</td><td>{row.proposedOutcome}</td><td>{row.changed?'CHANGED':'SAME'}</td><td>{row.reasonCode}</td></tr>)}</tbody></table></div>
+    </section>}
     <section className="panel">
       <div className="panel-heading"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Policy versions and review queue</h3></div><History size={19}/></div>
       <div className="table-wrap"><table><thead><tr><th>VERSION</th><th>STATUS</th><th>AUTHOR</th><th>REVIEWER</th><th>ACTION</th></tr></thead><tbody>
-        {versions.map(v=><tr key={v.id}><td>v{v.version}<small>{v.id}</small></td><td><Badge tone={v.status==='PUBLISHED'?'green':v.status==='REJECTED'?'red':'amber'}>{v.status}</Badge></td><td>{v.createdBy??'—'}</td><td>{v.approvedBy??'—'}</td><td>{v.status==='PENDING_APPROVAL'?<div className="toolbar"><button className="primary" disabled={busy===v.id} onClick={()=>void review(v.id,'approve')}>Approve & publish</button><button className="secondary" disabled={busy===v.id} onClick={()=>void review(v.id,'reject')}>Reject</button></div>:v.reviewNote??'—'}</td></tr>)}
+        {versions.map(v=><tr key={v.id}><td>v{v.version}<small>{v.id}</small></td><td><Badge tone={v.status==='PUBLISHED'?'green':v.status==='REJECTED'?'red':'amber'}>{v.status}</Badge></td><td>{v.createdBy??'—'}</td><td>{v.approvedBy??'—'}</td><td>{v.status==='PENDING_APPROVAL'?<div className="toolbar"><button className="primary" disabled={busy===v.id} onClick={()=>void review(v.id,'approve')}>Approve & publish</button><button className="secondary" disabled={busy===v.id} onClick={()=>void review(v.id,'reject')}>Reject</button></div>:v.status==='PUBLISHED'?<button className="secondary" disabled={busy===v.id} onClick={()=>void verifyImpact(v.id)}>Run PIV</button>:v.reviewNote??'—'}</td></tr>)}
       </tbody></table>{versions.length===0&&<div className="empty">No published or draft versions yet. The built-in baseline is active.</div>}</div>
     </section>
   </>;
