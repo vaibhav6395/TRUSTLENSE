@@ -6,7 +6,7 @@ ALTER TABLE app_users
 
 ALTER TABLE documents
     ADD COLUMN description TEXT NOT NULL DEFAULT '',
-    ADD COLUMN tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    ADD COLUMN tags JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN required_clearance SMALLINT NOT NULL DEFAULT 0 CHECK (required_clearance BETWEEN 0 AND 5),
     ADD COLUMN retention_until TIMESTAMPTZ,
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
