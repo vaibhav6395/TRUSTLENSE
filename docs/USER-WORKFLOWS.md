@@ -73,6 +73,8 @@ File signature checks are not malware scanning. Use synthetic files only until a
 
 ## 6. RBAC and ABAC evaluation
 
+SECURITY_ADMIN can create custom role codes and assign supported administrative authorities in People & roles. The current authority catalogue controls user management, role management, policy management and platform-wide audit visibility. Built-in roles are system-managed; custom roles must be unassigned before deletion. Custom role codes can also be referenced by ABAC policy rules.
+
 RBAC supplies role membership; ABAC adds request context such as department, clearance, classification, tags and custom scalar attributes.
 
 For each protected request the backend:
