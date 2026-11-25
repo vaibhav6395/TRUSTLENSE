@@ -47,7 +47,6 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/admin/roles/**").hasAuthority("PERM_ROLE_MANAGE")
                 .requestMatchers("/api/v1/admin/**").hasAuthority("PERM_USER_MANAGE")
                 .requestMatchers("/api/v1/policies/**").hasAuthority("PERM_POLICY_MANAGE")
-                .requestMatchers("/api/v1/audit-events").hasAuthority("PERM_AUDIT_READ")
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(new SessionAccountRefreshFilter(users), AnonymousAuthenticationFilter.class)
