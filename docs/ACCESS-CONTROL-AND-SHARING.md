@@ -100,6 +100,25 @@ SECURITY_ADMIN can assign FACULTY, STUDENT, STAFF and SECURITY_ADMIN roles; chan
 - `PATCH /api/v1/admin/users/{username}/access-profile`
 - `POST /api/v1/decisions/{id}/replay`
 
+
+
+## Dynamic roles and authorities
+
+SECURITY_ADMIN can create custom role codes, describe them, assign supported platform authorities, update custom roles and delete them only after all user assignments have been removed. Built-in FACULTY, STUDENT, STAFF and SECURITY_ADMIN roles are marked system-managed and cannot be edited or deleted. User role assignment accepts existing built-in or custom roles; it no longer silently creates unknown roles.
+
+Supported platform authorities:
+
+| Authority | Protected capability |
+|---|---|
+| `PERM_USER_MANAGE` | Review faculty requests and manage user accounts |
+| `PERM_ROLE_MANAGE` | Create/update/delete custom roles and assign authorities |
+| `PERM_POLICY_MANAGE` | Simulate, review and publish policies |
+| `PERM_AUDIT_READ` | Read platform-wide audit history |
+
+The SECURITY_ADMIN built-in role receives all four authorities during demo or production bootstrap. The role-authority catalogue is allowlisted by the backend; arbitrary permission strings cannot be added. Custom role memberships are also available as role attributes to ABAC policy rules. Platform authorities are distinct from document-level READ/DOWNLOAD grants.
+
+Role management API: `GET /api/v1/admin/roles`, `GET /api/v1/admin/roles/authorities`, `POST /api/v1/admin/roles`, `PUT /api/v1/admin/roles/{code}`, and `DELETE /api/v1/admin/roles/{code}`. Account role assignment remains under `/api/v1/admin/users/{username}/roles/{roleCode}`.
+
 ## Operational walkthrough
 
 1. Start the local stack and sign in using a synthetic demo account; complete MFA enrollment on first sign-in.
