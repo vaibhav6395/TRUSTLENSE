@@ -134,6 +134,8 @@ public class PolicyLifecycleService {
 
     public Map<String,Object> impact(UUID policyVersionId) {
         Map<String,Object> version=policyRow(policyVersionId);
+        if(!"PUBLISHED".equals(version.get("status")))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Impact verification requires a published policy version");
         String raw=jdbc.queryForObject("SELECT rules::text FROM policy_versions WHERE id=?",String.class,policyVersionId);
         JsonNode proposed;
         try{proposed=mapper.readTree(raw);}catch(Exception ex){throw new IllegalStateException(ex);}
