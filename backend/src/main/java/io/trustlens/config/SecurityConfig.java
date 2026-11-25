@@ -43,7 +43,10 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/health", "/api/v1/auth/csrf", "/api/v1/auth/login",
                                  "/api/v1/auth/signup", "/api/v1/auth/mfa/setup", "/api/v1/auth/mfa/verify",
                                  "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                .requestMatchers("/api/v1/admin/**", "/api/v1/policies/**").hasRole("SECURITY_ADMIN")
+                 .requestMatchers("/api/v1/admin/roles/**").hasAuthority("PERM_ROLE_MANAGE")
+                .requestMatchers("/api/v1/admin/**").hasAuthority("PERM_USER_MANAGE")
+                .requestMatchers("/api/v1/policies/**").hasAuthority("PERM_POLICY_MANAGE")
+                .requestMatchers("/api/v1/audit-events").hasAuthority("PERM_AUDIT_READ")
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(new SessionAccountRefreshFilter(users), AnonymousAuthenticationFilter.class)
