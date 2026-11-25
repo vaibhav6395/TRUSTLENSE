@@ -61,11 +61,12 @@ public class PolicyLifecycleService {
         if(request==null||request.rules()==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Policy rules are required");
         validate(request.rules());
         UUID actorId=userId(actor);
+        jdbc.execute("SELECT pg_advisory_xact_lock(884423)");
         Integer next=jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM policy_versions WHERE policy_key=?",Integer.class,KEY);
         UUID id=UUID.randomUUID();
         jdbc.update("""
             INSERT INTO policy_versions(id,policy_key,version_number,rules,status,created_by,published_by,published_at)
-            VALUES (?,?,?,?, 'DRAFT',?,NULL,NULL)
+            VALUES (?,?,?,CAST(? AS jsonb),'DRAFT',?,NULL,NULL)
             """,id,KEY,next,request.rules().toString(),actorId);
         event(id,actorId,"DRAFT_CREATED",request.note());
         return Map.of("id",id,"version",next,"status","DRAFT");
