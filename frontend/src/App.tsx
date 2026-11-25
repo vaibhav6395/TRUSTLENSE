@@ -149,7 +149,7 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
   documents: DocumentItem[]; onRead: (d: DocumentItem) => void; busyId: string;
   onUpload: (file: File,title: string,classification: string,description: string,tags: string[],requiredClearance: number) => Promise<void>;
   onDownload: (d: DocumentItem) => Promise<void>; onRetire: (d:DocumentItem)=>Promise<void>;
-  onUpdate:(d:DocumentItem,payload:{title:string;description:string;classification:string;tags:string[];requiredClearance:number;retentionUntil:string|null})=>Promise<void>;
+  onUpdate:(d:DocumentItem,payload:{title:string;description:string;classification:string;tags:string[];requiredClearance:number;retentionUntil:string|null;attributes:Record<string,unknown>})=>Promise<void>;
   username: string; isAdmin: boolean;
 }) {
   const [query,setQuery]=useState(''); const [file,setFile]=useState<File|null>(null);
@@ -162,7 +162,7 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
   const [editDescription,setEditDescription]=useState('');
   const [editClassification,setEditClassification]=useState('INTERNAL');
   const [editTags,setEditTags]=useState('');
-  const [editClearance,setEditClearance]=useState('0');const [editRetention,setEditRetention]=useState('');
+  const [editClearance,setEditClearance]=useState('0');const [editRetention,setEditRetention]=useState('');const [editAttributes,setEditAttributes]=useState('{}');
   const filtered=documents.filter(d=>(d.title+d.owner+d.department+d.classification+(d.tags??[]).join(' ')).toLowerCase().includes(query.toLowerCase()));
   async function submitUpload(e:FormEvent){e.preventDefault();setError('');if(!file){setError('Choose a file to upload.');return;}setUploading(true);
     try{await onUpload(file,title,classification,description,tags.split(',').map(t=>t.trim()).filter(Boolean),Number(requiredClearance));setFile(null);setTitle('');setDescription('');}
@@ -170,9 +170,9 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
   async function download(doc:DocumentItem){setError('');try{await onDownload(doc);}catch(err){setError(err instanceof Error?err.message:'Download failed');}}
   async function retire(doc:DocumentItem){if(!window.confirm(`Retire "${doc.title}"? All active grants will be revoked.`))return;setError('');
     try{await onRetire(doc);}catch(err){setError(err instanceof Error?err.message:'Retirement failed');}}
-  function beginEdit(doc:DocumentItem){setEditing(doc);setEditTitle(doc.title);setEditDescription(doc.description??'');setEditClassification(doc.classification);setEditTags((doc.tags??[]).join(', '));setEditClearance(String(doc.required_clearance??0));setEditRetention('');}
+  function beginEdit(doc:DocumentItem){setEditing(doc);setEditTitle(doc.title);setEditDescription(doc.description??'');setEditClassification(doc.classification);setEditTags((doc.tags??[]).join(', '));setEditClearance(String(doc.required_clearance??0));setEditRetention('');setEditAttributes(JSON.stringify(doc.attributes??{},null,2));}
   async function saveEdit(e:FormEvent){e.preventDefault();if(!editing)return;setUploading(true);setError('');
-    try{await onUpdate(editing,{title:editTitle,description:editDescription,classification:editClassification,tags:editTags.split(',').map(t=>t.trim()).filter(Boolean),requiredClearance:Number(editClearance),retentionUntil:editRetention?new Date(editRetention).toISOString():null});setEditing(null);}
+    try{await onUpdate(editing,{title:editTitle,description:editDescription,classification:editClassification,tags:editTags.split(',').map(t=>t.trim()).filter(Boolean),requiredClearance:Number(editClearance),retentionUntil:editRetention?new Date(editRetention).toISOString():null,attributes:JSON.parse(editAttributes)});setEditing(null);}
     catch(err){setError(err instanceof Error?err.message:'Metadata update failed');}finally{setUploading(false);}}
   return <><SectionHeading eyebrow="DOCUMENT GOVERNANCE" title="Documents" detail="Private storage, classification and ABAC metadata"/>
     <form className="toolbar document-upload-form" onSubmit={submitUpload}>
@@ -193,6 +193,7 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload, onRetire, 
       <input aria-label="Edit tags" value={editTags} onChange={e=>setEditTags(e.target.value)}/>
       <select aria-label="Edit clearance" value={editClearance} onChange={e=>setEditClearance(e.target.value)}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>Clearance {n}</option>)}</select>
       <label>Retention expires<input type="datetime-local" value={editRetention} onChange={e=>setEditRetention(e.target.value)}/></label>
+      <label>Custom ABAC attributes (JSON)<textarea rows={4} value={editAttributes} onChange={e=>setEditAttributes(e.target.value)}/></label>
       <button className="primary" disabled={uploading}>Save metadata</button><button type="button" className="secondary" onClick={()=>setEditing(null)}>Cancel</button>
     </form>}
     <div className="toolbar"><input className="search-input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search visible documents"/></div>
