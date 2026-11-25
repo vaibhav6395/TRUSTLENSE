@@ -47,7 +47,7 @@ public class DocumentService {
         java.util.List<Map<String,Object>> visible=new java.util.ArrayList<>();
         for(Map<String,Object> doc:jdbc.queryForList("""
             SELECT d.id,d.title,d.department_code AS department,d.classification,d.status,d.created_at,
-                   d.description,d.tags,d.required_clearance,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
+                   d.description,d.tags::text AS tags,d.required_clearance,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
             FROM documents d JOIN app_users u ON u.id=d.owner_id
             WHERE d.status='ACTIVE' ORDER BY d.created_at DESC
             """)) {
@@ -59,8 +59,9 @@ public class DocumentService {
                 """,Boolean.class,id,actorId));
             java.util.Set<String> tags=new java.util.HashSet<>();
             Object raw=doc.get("tags");
-            if(raw instanceof String[] arr) java.util.Collections.addAll(tags,arr);
-            else if(raw instanceof java.sql.Array sqlArray) { try { java.util.Collections.addAll(tags,(String[])sqlArray.getArray()); } catch(java.sql.SQLException ignored) { } }
+            if(raw!=null) try { tags.addAll(mapper.readValue(raw.toString(),new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>(){})); }
+            catch(Exception ignored) { }
+            doc.put("tags",tags.stream().sorted().toList());
             int clearance=((Number)actor.get("clearance_level")).intValue();
             int required=((Number)doc.get("required_clearance")).intValue();
             Object retention=doc.get("retention_until");
@@ -166,10 +167,10 @@ public class DocumentService {
             jdbc.update("""
                 INSERT INTO documents(id,title,owner_id,department_code,classification,storage_key,status,
                                       content_type,size_bytes,content_sha256,description,tags,required_clearance)
-                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?,?,CAST(? AS jsonb),?)
                 """, documentId, title.trim(), ownerId, actor.get("department_code"), classification,
                 stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256(),
-                description==null?"":description.trim(),tags==null?new String[]{}:tags.toArray(String[]::new),requiredClearance);
+                description==null?"":description.trim(),json(tags==null?java.util.List.of():tags),requiredClearance);
             appendAudit(ownerId, "DOCUMENT_UPLOADED", json(Map.of(
                 "documentId", documentId.toString(), "classification", classification,
                 "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256())));
@@ -201,10 +202,10 @@ public class DocumentService {
             if(!retention.toInstant().isAfter(java.time.Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Retention expiry must be in the future");
         }
         jdbc.update("""
-            UPDATE documents SET title=?,description=?,classification=?,tags=?,required_clearance=?,retention_until=?,updated_at=now()
+            UPDATE documents SET title=?,description=?,classification=?,tags=CAST(? AS jsonb),required_clearance=?,retention_until=?,updated_at=now()
             WHERE id=? AND status='ACTIVE'
             """,request.title().trim(),request.description()==null?"":request.description().trim(),
-            request.classification(),request.tags()==null?new String[]{}:request.tags().toArray(String[]::new),
+            request.classification(),json(request.tags()==null?java.util.List.of():request.tags()),
             request.requiredClearance(),retention,documentId);
         appendAudit(actorId,"DOCUMENT_METADATA_UPDATED",json(Map.of("documentId",documentId.toString(),
             "classification",request.classification(),"requiredClearance",request.requiredClearance())));
@@ -251,7 +252,7 @@ public class DocumentService {
             "SELECT id, department_code, enabled, clearance_level FROM app_users WHERE username=?", username);
         Map<String, Object> doc;
         try {
-            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags, required_clearance,retention_until FROM documents WHERE id=?", documentId);
+            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags::text AS tags, required_clearance,retention_until FROM documents WHERE id=?", documentId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
         }
@@ -296,11 +297,8 @@ public class DocumentService {
             """, String.class, actorId));
         Object rawTags = doc.get("tags");
         java.util.Set<String> tags = new java.util.HashSet<>();
-        if (rawTags instanceof String[] tagArray) java.util.Collections.addAll(tags, tagArray);
-        else if (rawTags instanceof java.sql.Array sqlArray) {
-            try { java.util.Collections.addAll(tags,(String[])sqlArray.getArray()); }
-            catch (java.sql.SQLException ignored) { }
-        }
+        if(rawTags!=null) try { tags.addAll(mapper.readValue(rawTags.toString(),new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>(){})); }
+        catch(Exception ignored) { }
         int actorClearance = ((Number)actor.get("clearance_level")).intValue();
         int requiredClearance = ((Number)doc.get("required_clearance")).intValue();
         var policyRules = policies.activeRules();
