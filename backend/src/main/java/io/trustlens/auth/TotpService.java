@@ -96,6 +96,10 @@ public class TotpService {
         return new SecretKeySpec(encryptionKey, "AES");
     }
 
+    String currentCode(String secret) {
+        return totp(secret, Instant.now().getEpochSecond() / 30);
+    }
+
     private String totp(String secret, long step) {
         try {
             byte[] key = decodeBase32(secret);
@@ -106,7 +110,7 @@ public class TotpService {
             int offset = hash[hash.length - 1] & 0x0f;
             int binary = ((hash[offset] & 0x7f) << 24) | ((hash[offset + 1] & 0xff) << 16)
                 | ((hash[offset + 2] & 0xff) << 8) | (hash[offset + 3] & 0xff);
-            return String.format("%06d", binary % 1_000_000);
+            return String.format(java.util.Locale.ROOT, "%06d", binary % 1_000_000);
         } catch (Exception ex) { throw new IllegalStateException("Could not calculate authenticator code", ex); }
     }
 
