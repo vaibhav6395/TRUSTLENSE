@@ -27,20 +27,24 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Password verification is only the first authentication stage. A short-lived, single-use MFA challenge must be completed before an authenticated session is issued.
 - TOTP enrollment and verification, AES-256-GCM encrypted MFA secrets, ten single-use SHA-256-hashed recovery codes, a five-attempt limit per MFA challenge, and a database-backed 5-failures/15-minute password login throttle.
 - Production first-admin bootstrap is performed by the backend from environment variables; no public administrator signup endpoint exists.
-- Deny-by-default authorization using authenticated identity, account state, document state, owner, public READ, active READ/DOWNLOAD grants, and same-department SECURITY_ADMIN READ.
-- Grant creation with expiry validation, admin-only revocation, and audit events.
+- Deny-by-default RBAC/ABAC authorization using live roles, department, clearance, classification, tags, structured subject/resource attributes, document lifecycle, retention, ownership and active grants.
+- Owner/admin controlled sharing with READ or DOWNLOAD grants, same-department faculty constraints, scheduled start, expiry, purpose, download limits, owner/creator/admin revocation and audit events.
 - Private server-side file storage with generated storage keys, 10 MB limit, allowlisted PDF/TXT/PNG/JPEG types, basic content-signature checks, and SHA-256 metadata.
 - Authenticated upload and download endpoints. Downloads are streamed only after a fresh authorization decision; storage paths are never exposed as public URLs.
-- Persistent ALLOW/DENY decisions with reason codes and evidence snapshots.
+- Persistent ALLOW/DENY decisions with reason codes, explanations, complete evidence snapshots and immutable policy-version references.
+- JSON policy studio with server-side simulation, draft/submit/review/publish lifecycle and independent two-administrator approval.
+- Historical decision replay against the original policy/evidence and Policy Impact Verification against up to 100 recent observed decisions.
+- Document metadata editing, custom ABAC attributes, required clearance, retention expiry and retirement with automatic grant revocation.
+- Administrator role assignment and user access-profile management, including clearance and custom attributes.
 - Hash-linked audit events for access decisions, grant creation/revocation and document uploads.
 - React interface for sign-in, document upload/read/download, grant management, decisions, audit history and a read-only synthetic policy sandbox.
 - Docker Compose development and production topology, plus CI build, test, dependency-audit and container-build jobs.
 
 ## Known gaps
 
-- ABAC rules are currently a small deterministic policy, not a configurable policy language.
-- The Policy Sandbox remains a browser-only synthetic simulation; it does not publish policy or affect live authorization.
-- Policy versioning, approvals, PIV, historical replay and independent signed audit checkpoints are not implemented.
+- Policy rules use a constrained JSON rule format rather than a general-purpose policy language. Rules are data, not executable scripts.
+- PIV compares a bounded sample of recorded decisions; it does not guarantee future outcomes.
+- Independent signed audit checkpoints, malware scanning, campus SSO/directory integration, administrator-assisted MFA reset, monitoring, backup/restore drills and independent security review remain deployment hardening tasks.
 - A downloaded file cannot be recalled after the recipient has saved or copied it.
 - File type checks are not malware scanning; use only synthetic demo files.
 - Administrator-assisted MFA reset and campus directory/SSO verification are not implemented yet.
