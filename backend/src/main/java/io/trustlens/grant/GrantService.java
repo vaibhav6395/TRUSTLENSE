@@ -59,7 +59,8 @@ public class GrantService {
         boolean admin=isAdmin(actorId);
         boolean owner=actorId.equals(document.get("owner_id"));
         if(!admin&&!owner) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only the document owner or SECURITY_ADMIN may share this document");
-        if(!admin&&!java.util.Objects.equals(subject.get("department_code"),document.get("department_code")))
+        if(!admin&&(subject.get("department_code")==null||document.get("department_code")==null||
+            !java.util.Objects.equals(subject.get("department_code"),document.get("department_code"))))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Faculty owners may share only within their department");
         if(request.maxDownloads()!=null&&!"DOWNLOAD".equals(permission))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Download limits apply only to DOWNLOAD grants");
