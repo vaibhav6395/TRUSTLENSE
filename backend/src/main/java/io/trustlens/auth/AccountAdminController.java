@@ -94,6 +94,10 @@ public class AccountAdminController {
         Integer roleId=jdbc.queryForObject("SELECT COUNT(*) FROM app_roles WHERE code=?",Integer.class,role);
         if(roleId==null||roleId==0)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Role does not exist; create it in Role management first");
+        boolean superAdmin=actor.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_SECURITY_ADMIN"));
+        boolean privileged=Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM role_authorities ra JOIN app_roles r ON r.id=ra.role_id WHERE r.code=?)",Boolean.class,role));
+        if((role.equals("SECURITY_ADMIN")||privileged)&&!superAdmin)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only a SECURITY_ADMIN can assign administrator roles or authority-bearing roles");
         jdbc.update("INSERT INTO user_roles(user_id,role_id) SELECT id,(SELECT id FROM app_roles WHERE code=?) FROM app_users WHERE username=? ON CONFLICT DO NOTHING",role,username);
         audit.record(actor.getName(),"ROLE_ASSIGNED",Map.of("username",username,"role",role));
         return Map.of("username",username,"role",role,"assigned",true);
