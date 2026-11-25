@@ -19,7 +19,7 @@ function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: st
   return <div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{detail && <span className="muted">{detail}</span>}</div>;
 }
 type LoginChallenge = { authenticated: false; mfaRequired: boolean; mfaEnrollmentRequired: boolean; username: string; challengeToken: string };
-type LoginResult = { authenticated: true; username: string; authorities: string[] };
+type LoginResult = { authenticated: true; username: string; authorities: string[]; recoveryCodes?: string[] };
 function Login({ onLogin, onAuthenticated }: {
   onLogin: (username: string, password: string) => Promise<LoginChallenge>;
   onAuthenticated: (result: LoginResult) => Promise<void>;
@@ -353,6 +353,7 @@ export default function App() {
   const [audit,setAudit] = useState<AuditItem[]>([]);
   const [busyId,setBusyId] = useState('');
   const [message,setMessage] = useState('');
+  const [recoveryCodes,setRecoveryCodes] = useState<string[]>([]);
   const [loading,setLoading] = useState(true);
 
   async function refreshData() {
@@ -375,6 +376,7 @@ export default function App() {
   }
   async function completeLogin(result: LoginResult) {
     setUser({authenticated:result.authenticated,username:result.username,authorities:result.authorities});
+    setRecoveryCodes(result.recoveryCodes ?? []);
     await refreshData();
   }
   async function logout() {
@@ -405,6 +407,12 @@ export default function App() {
     </aside>
     <section className="content">
       <header className="topbar"><div><span className="eyebrow">CAMPUS SECURITY PLATFORM</span><h1>{page}</h1></div><div className="topbar-right"><div className="status-pill"><span className={health?.status==='UP'?'dot online':'dot'}/>{health?.status==='UP'?'API connected':'API offline'}</div><div className="user-chip"><div className="avatar">{user.username.slice(0,2).toUpperCase()}</div><span>{user.username}</span></div><button className="icon-button" title="Refresh data" onClick={() => refreshData().catch(e=>setMessage(e.message))}><RefreshCw size={15}/></button><button className="icon-button" title="Sign out" onClick={() => logout().catch(e=>setMessage(e.message))}><LogOut size={15}/></button></div></header>
+      {recoveryCodes.length>0 && <section className="panel explanation">
+        <div className="panel-heading"><div><span className="eyebrow">SAVE THESE NOW</span><h3>MFA recovery codes</h3></div><ShieldCheck size={19}/></div>
+        <p>These ten codes are shown once. Store them somewhere private. Each code can replace one authenticator code for a single sign-in.</p>
+        <div className="metrics">{recoveryCodes.map(code=><code className="metric" key={code}>{code}</code>)}</div>
+        <button className="primary" onClick={()=>setRecoveryCodes([])}>I have saved my recovery codes</button>
+      </section>}
       {message && <div className="connection-notice"><Check size={15}/>{message}</div>}
       {page==='Overview' && <Overview health={health} documents={documents} decisions={decisions} audit={audit} setPage={setPage}/>}
       {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}
