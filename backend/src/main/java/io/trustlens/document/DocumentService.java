@@ -39,7 +39,7 @@ public class DocumentService {
     }
 
     public java.util.List<Map<String, Object>> listVisible(String username) {
-        Map<String,Object> actor=jdbc.queryForMap("SELECT id,department_code,enabled,clearance_level FROM app_users WHERE username=?",username);
+        Map<String,Object> actor=jdbc.queryForMap("SELECT id,department_code,enabled,clearance_level,attributes::text AS attributes FROM app_users WHERE username=?",username);
         UUID actorId=(UUID)actor.get("id");
         java.util.Set<String> roles=new java.util.HashSet<>(jdbc.queryForList(
             "SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?",String.class,actorId));
@@ -47,7 +47,7 @@ public class DocumentService {
         java.util.List<Map<String,Object>> visible=new java.util.ArrayList<>();
         for(Map<String,Object> doc:jdbc.queryForList("""
             SELECT d.id,d.title,d.department_code AS department,d.classification,d.status,d.created_at,
-                   d.description,d.tags::text AS tags,d.required_clearance,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
+                   d.description,d.tags::text AS tags,d.required_clearance,d.attributes::text AS attributes,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
             FROM documents d JOIN app_users u ON u.id=d.owner_id
             WHERE d.status='ACTIVE' ORDER BY d.created_at DESC
             """)) {
@@ -64,6 +64,8 @@ public class DocumentService {
             doc.put("tags",tags.stream().sorted().toList());
             int clearance=((Number)actor.get("clearance_level")).intValue();
             int required=((Number)doc.get("required_clearance")).intValue();
+            java.util.Map<String,String> userAttributes=parseAttributes(actor.get("attributes"));
+            java.util.Map<String,String> resourceAttributes=parseAttributes(doc.get("attributes"));
             Object retention=doc.get("retention_until");
             boolean retentionValid=true;
             if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
@@ -73,7 +75,7 @@ public class DocumentService {
                 Boolean.TRUE.equals(actor.get("enabled")),active,actorId.equals(
                     jdbc.queryForObject("SELECT owner_id FROM documents WHERE id=?",UUID.class,id)),
                 "READ",(String)actor.get("department_code"),(String)doc.get("department"),
-                (String)doc.get("classification"),clearance,required,roles,tags,grant));
+                (String)doc.get("classification"),clearance,required,roles,tags,userAttributes,resourceAttributes,grant));
             if(decision.allowed()) visible.add(doc);
         }
         return visible;
@@ -235,6 +237,17 @@ public class DocumentService {
         return Map.of("id",documentId,"status","RETIRED");
     }
 
+    private java.util.Map<String,String> parseAttributes(Object raw) {
+        if(raw==null)return java.util.Map.of();
+        try {
+            java.util.Map<String,Object> values=mapper.readValue(raw.toString(),
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String,Object>>(){});
+            java.util.Map<String,String> result=new java.util.HashMap<>();
+            values.forEach((k,v)->{if(v!=null&&(v instanceof String||v instanceof Number||v instanceof Boolean))result.put(k,String.valueOf(v));});
+            return result;
+        } catch(Exception ex){return java.util.Map.of();}
+    }
+
     private UUID userId(String username) {
         UUID id=jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",rs->rs.next()?rs.getObject(1,UUID.class):null,username);
         if(id==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
@@ -261,10 +274,10 @@ public class DocumentService {
 
     private Map<String, Object> evaluateAndRecord(UUID documentId, String username, String action) {
         Map<String, Object> actor = jdbc.queryForMap(
-            "SELECT id, department_code, enabled, clearance_level FROM app_users WHERE username=?", username);
+            "SELECT id, department_code, enabled, clearance_level,attributes::text AS attributes FROM app_users WHERE username=?", username);
         Map<String, Object> doc;
         try {
-            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags::text AS tags, required_clearance,retention_until FROM documents WHERE id=?", documentId);
+            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags::text AS tags, required_clearance,attributes::text AS attributes,retention_until FROM documents WHERE id=?", documentId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
         }
@@ -313,10 +326,12 @@ public class DocumentService {
         catch(Exception ignored) { }
         int actorClearance = ((Number)actor.get("clearance_level")).intValue();
         int requiredClearance = ((Number)doc.get("required_clearance")).intValue();
+        java.util.Map<String,String> userAttributes=parseAttributes(actor.get("attributes"));
+        java.util.Map<String,String> resourceAttributes=parseAttributes(doc.get("attributes"));
         var policyRules = policies.activeRules();
         var policyResult = policyEngine.evaluate(policyRules,new AbacPolicyEngine.Context(
             enabled,activeDocument,owner,action,actorDept,docDept,classification,
-            actorClearance,requiredClearance,roles,tags,activeGrant));
+            actorClearance,requiredClearance,roles,tags,userAttributes,resourceAttributes,activeGrant));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
         if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
@@ -336,6 +351,8 @@ public class DocumentService {
             Map.entry("actorClearance", actorClearance),
             Map.entry("requiredClearance", requiredClearance),
             Map.entry("documentTags", tags),
+            Map.entry("subjectAttributes",userAttributes),
+            Map.entry("resourceAttributes",resourceAttributes),
             Map.entry("activeGrant", activeGrant),
             Map.entry("grantExpired", expiredGrant),
             Map.entry("grantRevoked", revokedGrant),
