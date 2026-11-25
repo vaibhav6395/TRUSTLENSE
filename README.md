@@ -4,7 +4,7 @@
 
 TRUSTLENS is a hackathon prototype for secure campus document exchange. It combines server-side sessions, deny-by-default authorization, role and contextual checks, expiring/revocable grants, protected file delivery, explainable decisions, and hash-linked audit events.
 
-> **Status:** Hackathon prototype. The core document-sharing flow includes private uploads and a server-mediated download gateway. It is not production-ready or independently security-certified. Full policy authoring/publication, PIV, historical replay, independent audit checkpoints, malware scanning, production identity provisioning, and operational hardening remain incomplete.
+> **Status:** Expanded hackathon prototype with administrator-approved faculty onboarding and mandatory TOTP MFA. It is not production-certified. Full policy authoring/publication, PIV, historical replay, independent audit checkpoints, malware scanning, password-login rate limiting, recovery-code workflows and operational hardening remain incomplete.
 
 ## Challenge coverage
 
@@ -21,6 +21,11 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 ## Implemented
 
 - Database-backed login/logout with BCrypt, server-side sessions, CSRF bootstrap and session ID rotation.
+- Faculty signup requests are stored separately from active users; pending/rejected requests cannot authenticate.
+- SECURITY_ADMIN-only approval/rejection creates the faculty account and records the reviewer and decision in the hash-linked audit history.
+- Password verification is only the first authentication stage. A short-lived, single-use MFA challenge must be completed before an authenticated session is issued.
+- TOTP enrollment and verification, AES-256-GCM encrypted MFA secrets, and a five-attempt limit per MFA challenge.
+- Production first-admin bootstrap is performed by the backend from environment variables; no public administrator signup endpoint exists.
 - Deny-by-default authorization using authenticated identity, account state, document state, owner, public READ, active READ/DOWNLOAD grants, and same-department SECURITY_ADMIN READ.
 - Grant creation with expiry validation, admin-only revocation, and audit events.
 - Private server-side file storage with generated storage keys, 10 MB limit, allowlisted PDF/TXT/PNG/JPEG types, basic content-signature checks, and SHA-256 metadata.
@@ -37,7 +42,9 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Policy versioning, approvals, PIV, historical replay and independent signed audit checkpoints are not implemented.
 - A downloaded file cannot be recalled after the recipient has saved or copied it.
 - File type checks are not malware scanning; use only synthetic demo files.
-- Production user provisioning, rate limiting, monitoring, backup/restore drills and independent security review remain required.
+- Password-stage login rate limiting, MFA recovery codes and administrator-assisted MFA reset are not implemented yet.
+- Institutional email/faculty-ID verification is a manual administrator process; no campus directory or SSO connector is configured.
+- Monitoring, backup/restore drills and independent security review remain required.
 
 ## Repository layout
 
@@ -146,7 +153,7 @@ cd TRUSTLENSE
 cp .env.example .env
 ```
 
-Edit `.env`. Set `POSTGRES_PASSWORD` and set `DB_PASSWORD` to the **same value**. Replace both demo password placeholders with different unique passwords of at least 14 characters. Keep `.env` private; never commit it.
+Edit `.env`. Set `POSTGRES_PASSWORD` and set `DB_PASSWORD` to the **same value**. Replace both demo password placeholders with different unique passwords of at least 14 characters. Generate `MFA_ENCRYPTION_KEY` using `openssl rand -base64 32` and keep it stable: losing or changing it makes existing authenticator secrets unreadable. Keep `.env` private; never commit it.
 
 For local HTTP development, `COOKIE_SECURE=false` is required. The example file already sets this and allows the Vite origin `http://localhost:5173`.
 
@@ -183,7 +190,7 @@ cd backend
 DEMO_DATA_ENABLED=true COOKIE_SECURE=false mvn spring-boot:run
 ```
 
-Keep this terminal open. On first startup, Flyway applies the database migrations and the demo initializer creates the `demo` and `admin` users using the passwords in `.env`.
+Keep this terminal open. On first startup, Flyway applies the database migrations and the demo initializer creates the `demo` and `admin` users using the passwords in `.env`. On first sign-in, each account must enroll an authenticator app before a session is issued. The setup key is displayed once; enter it into an authenticator app and submit its current six-digit code.
 
 If your Maven installation does not resolve the Spring Boot plugin using the short goal, run:
 
@@ -269,6 +276,10 @@ Demo seeding is disabled by default. Use only a disposable local database and sy
 
 ## API highlights
 
+- `POST /api/v1/auth/signup` — submit a faculty request (does not create an active account).
+- `POST /api/v1/auth/login` — verify password and issue a short-lived MFA challenge (not a session).
+- `POST /api/v1/auth/mfa/setup` and `POST /api/v1/auth/mfa/verify` — enroll or verify TOTP; only verification creates the authenticated session.
+- `GET /api/v1/admin/signup-requests`, `POST /api/v1/admin/signup-requests/{id}/approve`, `POST /api/v1/admin/signup-requests/{id}/reject` — SECURITY_ADMIN-only faculty review.
 - `POST /api/v1/documents` — authenticated multipart upload (title, classification, file).
 - `GET /api/v1/documents/{id}` — metadata read with a fresh READ decision.
 - `GET /api/v1/documents/{id}/content` — protected attachment download with a fresh DOWNLOAD decision.
