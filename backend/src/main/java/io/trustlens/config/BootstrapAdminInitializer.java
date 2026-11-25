@@ -38,8 +38,14 @@ public class BootstrapAdminInitializer implements CommandLineRunner {
         if (username == null || !username.matches("[a-zA-Z0-9._-]{3,80}") ||
             password == null || password.length() < 16)
             throw new IllegalStateException("Set BOOTSTRAP_ADMIN_USERNAME and a unique BOOTSTRAP_ADMIN_PASSWORD of at least 16 characters for first startup.");
-        jdbc.update("INSERT INTO app_roles(id,code,description) VALUES (?, 'SECURITY_ADMIN','Security administrator') ON CONFLICT(code) DO NOTHING",
+        jdbc.update("INSERT INTO app_roles(id,code,description,is_system) VALUES (?, 'SECURITY_ADMIN','Security administrator',TRUE) ON CONFLICT(code) DO NOTHING",
             UUID.randomUUID());
+        jdbc.update("""
+            INSERT INTO role_authorities(role_id,authority_code)
+            SELECT id, permission FROM app_roles
+            CROSS JOIN (VALUES ('PERM_USER_MANAGE'),('PERM_ROLE_MANAGE'),('PERM_POLICY_MANAGE'),('PERM_AUDIT_READ')) p(permission)
+            WHERE code='SECURITY_ADMIN' ON CONFLICT DO NOTHING
+            """);
         UUID id = UUID.randomUUID();
         jdbc.update("""
             INSERT INTO app_users(id,username,password_hash,display_name,department_code,enabled)
