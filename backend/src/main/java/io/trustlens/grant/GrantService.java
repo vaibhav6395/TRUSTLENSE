@@ -35,9 +35,9 @@ public class GrantService {
                         ELSE 'ACTIVE' END AS status
             FROM access_grants g JOIN documents d ON d.id=g.document_id
             JOIN app_users u ON u.id=g.subject_user_id JOIN app_users creator ON creator.id=g.granted_by
-            WHERE ? OR d.owner_id=? OR g.granted_by=?
+            WHERE ? OR d.owner_id=? OR g.granted_by=? OR g.subject_user_id=?
             ORDER BY g.created_at DESC
-            """,admin,actorId,actorId);
+            """,admin,actorId,actorId,actorId);
     }
 
     @Transactional
@@ -61,6 +61,8 @@ public class GrantService {
         if(!admin&&!owner) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only the document owner or SECURITY_ADMIN may share this document");
         if(!admin&&!java.util.Objects.equals(subject.get("department_code"),document.get("department_code")))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Faculty owners may share only within their department");
+        if(request.maxDownloads()!=null&&!"DOWNLOAD".equals(permission))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Download limits apply only to DOWNLOAD grants");
         if(request.maxDownloads()!=null&&(request.maxDownloads()<1||request.maxDownloads()>10000))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"maxDownloads must be between 1 and 10000");
         String purpose=request.purpose()==null?"":request.purpose().trim();
