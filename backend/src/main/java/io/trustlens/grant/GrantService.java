@@ -21,21 +21,28 @@ public class GrantService {
     public GrantService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public java.util.List<Map<String, Object>> list(String username) {
-        UUID actorId = actorId(username);
-        requireAdmin(actorId);
+        UUID actorId=actorId(username);
+        boolean admin=isAdmin(actorId);
         return jdbc.queryForList("""
-            SELECT g.id, d.title AS document, u.username AS subject,
-                   g.permission, g.expires_at AS "expiresAt", g.revoked_at AS "revokedAt"
+            SELECT g.id,d.title AS document,u.username AS subject,g.permission,
+                   g.expires_at AS "expiresAt",g.revoked_at AS "revokedAt",
+                   g.purpose,g.max_downloads AS "maxDownloads",g.download_count AS "downloadCount",
+                   g.starts_at AS "startsAt",creator.username AS "createdBy",
+                   CASE WHEN g.revoked_at IS NOT NULL THEN 'REVOKED'
+                        WHEN g.starts_at>now() THEN 'SCHEDULED'
+                        WHEN g.expires_at<=now() THEN 'EXPIRED'
+                        WHEN g.max_downloads IS NOT NULL AND g.download_count>=g.max_downloads THEN 'EXHAUSTED'
+                        ELSE 'ACTIVE' END AS status
             FROM access_grants g JOIN documents d ON d.id=g.document_id
-            JOIN app_users u ON u.id=g.subject_user_id
+            JOIN app_users u ON u.id=g.subject_user_id JOIN app_users creator ON creator.id=g.granted_by
+            WHERE ? OR d.owner_id=? OR g.granted_by=? OR g.subject_user_id=?
             ORDER BY g.created_at DESC
-            """);
+            """,admin,actorId,actorId,actorId);
     }
 
     @Transactional
     public Map<String, Object> create(CreateGrantRequest request, String username) {
-        UUID actorId = actorId(username);
-        requireAdmin(actorId);
+        UUID actorId=actorId(username);
         if (request == null || request.documentId() == null || request.subjectUsername() == null
                 || request.subjectUsername().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document and subject user are required");
@@ -44,18 +51,35 @@ public class GrantService {
         if (!"READ".equals(permission) && !"DOWNLOAD".equals(permission)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Permission must be READ or DOWNLOAD");
         }
-        UUID subjectId = jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",
-            rs -> rs.next() ? rs.getObject(1, UUID.class) : null, request.subjectUsername().trim());
-        if (subjectId == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Enabled subject user not found");
-        Boolean documentExists = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM documents WHERE id=? AND status='ACTIVE')",
-            Boolean.class, request.documentId());
-        if (!Boolean.TRUE.equals(documentExists)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Active document not found");
+        Map<String,Object> subject=jdbc.queryForMap("SELECT id,department_code FROM app_users WHERE username=? AND enabled=TRUE",
+            request.subjectUsername().trim());
+        UUID subjectId=(UUID)subject.get("id");
+        Map<String,Object> document=jdbc.queryForMap("SELECT owner_id,department_code FROM documents WHERE id=? AND status='ACTIVE'",
+            request.documentId());
+        boolean admin=isAdmin(actorId);
+        boolean owner=actorId.equals(document.get("owner_id"));
+        if(!admin&&!owner) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only the document owner or SECURITY_ADMIN may share this document");
+        if(!admin&&(subject.get("department_code")==null||document.get("department_code")==null||
+            !java.util.Objects.equals(subject.get("department_code"),document.get("department_code"))))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Faculty owners may share only within their department");
+        if(request.maxDownloads()!=null&&!"DOWNLOAD".equals(permission))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Download limits apply only to DOWNLOAD grants");
+        if(request.maxDownloads()!=null&&(request.maxDownloads()<1||request.maxDownloads()>10000))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"maxDownloads must be between 1 and 10000");
+        String purpose=request.purpose()==null?"":request.purpose().trim();
+        if(purpose.length()>500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Share purpose is limited to 500 characters");
 
+        Timestamp starts=Timestamp.from(Instant.now());
+        if(request.startsAt()!=null&&!request.startsAt().isBlank()){
+            try{starts=Timestamp.from(OffsetDateTime.parse(request.startsAt()).toInstant());}
+            catch(java.time.format.DateTimeParseException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"startsAt must be an ISO-8601 timestamp with timezone");}
+            if(starts.toInstant().isBefore(Instant.now().minusSeconds(30))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Grant start time cannot be in the past");
+        }
         Timestamp expiry = null;
         if (request.expiresAt() != null && !request.expiresAt().isBlank()) {
             try {
                 Instant instant = OffsetDateTime.parse(request.expiresAt()).toInstant();
-                if (!instant.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Grant expiry must be in the future");
+                if (!instant.isAfter(starts.toInstant())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Grant expiry must be after its start time");
                 expiry = Timestamp.from(instant);
             } catch (java.time.format.DateTimeParseException ex) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "expiresAt must be an ISO-8601 timestamp with timezone");
@@ -63,25 +87,28 @@ public class GrantService {
         }
         UUID grantId = UUID.randomUUID();
         jdbc.update("""
-            INSERT INTO access_grants(id,document_id,subject_user_id,permission,granted_by,expires_at)
-            VALUES (?,?,?,?,?,?)
-            """, grantId, request.documentId(), subjectId, permission, actorId, expiry);
+            INSERT INTO access_grants(id,document_id,subject_user_id,permission,granted_by,starts_at,expires_at,purpose,max_downloads)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """,grantId,request.documentId(),subjectId,permission,actorId,starts,expiry,purpose,request.maxDownloads());
         appendAudit(actorId, "GRANT_CREATED", "{\"grantId\":\"" + grantId + "\",\"documentId\":\"" +
             request.documentId() + "\",\"subject\":\"" + request.subjectUsername().trim() +
             "\",\"permission\":\"" + permission + "\"}");
         return Map.of("grantId", grantId, "documentId", request.documentId(),
             "subjectUsername", request.subjectUsername().trim(), "permission", permission,
-            "expiresAt", expiry == null ? "" : expiry.toInstant().toString());
+            "expiresAt",expiry==null?"":expiry.toInstant().toString(),"startsAt",starts.toInstant().toString(),
+            "purpose",purpose,"maxDownloads",request.maxDownloads()==null?0:request.maxDownloads());
     }
 
     @Transactional
     public Map<String, Object> revoke(UUID grantId, String username) {
-        UUID actorId = actorId(username);
-        requireAdmin(actorId);
-        int updated = jdbc.update("""
-            UPDATE access_grants SET revoked_at=now(), revoked_by=?
-            WHERE id=? AND revoked_at IS NULL
-            """, actorId, grantId);
+        UUID actorId=actorId(username);
+        int updated=jdbc.update("""
+            UPDATE access_grants g SET revoked_at=now(),revoked_by=?
+            WHERE g.id=? AND g.revoked_at IS NULL AND (
+              g.granted_by=? OR EXISTS(SELECT 1 FROM documents d WHERE d.id=g.document_id AND d.owner_id=?)
+              OR EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                        WHERE ur.user_id=? AND r.code='SECURITY_ADMIN'))
+            """,actorId,grantId,actorId,actorId,actorId);
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Active grant not found");
         appendAudit(actorId, "GRANT_REVOKED", "{\"grantId\":\"" + grantId + "\"}");
         return Map.of("grantId", grantId, "revoked", true, "revokedAt", Instant.now().toString());
@@ -94,12 +121,12 @@ public class GrantService {
         return id;
     }
 
-    private void requireAdmin(UUID actorId) {
-        Boolean admin = jdbc.queryForObject("""
+    private boolean isAdmin(UUID actorId) {
+        Boolean admin=jdbc.queryForObject("""
             SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
             WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
-            """, Boolean.class, actorId);
-        if (!Boolean.TRUE.equals(admin)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Security administrator role required");
+            """,Boolean.class,actorId);
+        return Boolean.TRUE.equals(admin);
     }
 
     private void appendAudit(UUID actorId, String eventType, String payload) {
@@ -119,5 +146,5 @@ public class GrantService {
         catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
     }
 
-    public record CreateGrantRequest(UUID documentId, String subjectUsername, String permission, String expiresAt) {}
+    public record CreateGrantRequest(UUID documentId,String subjectUsername,String permission,String startsAt,String expiresAt,String purpose,Integer maxDownloads) {}
 }

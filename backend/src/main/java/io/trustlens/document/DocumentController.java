@@ -49,8 +49,22 @@ public class DocumentController {
     public Map<String, Object> upload(@RequestPart("file") MultipartFile file,
                                       @RequestParam("title") String title,
                                       @RequestParam("classification") String classification,
+                                      @RequestParam(value="description",required=false) String description,
+                                      @RequestParam(value="tags",required=false) java.util.List<String> tags,
+                                      @RequestParam(value="requiredClearance",defaultValue="0") int requiredClearance,
                                       Authentication authentication) throws IOException {
-        return documents.upload(file, title, classification, authentication.getName());
+        return documents.upload(file,title,classification,description,tags,requiredClearance,authentication.getName());
+    }
+
+    @PatchMapping("/{id}")
+    public Map<String,Object> update(@PathVariable UUID id,@RequestBody DocumentService.DocumentMetadataRequest request,
+                                     Authentication authentication) {
+        return documents.updateMetadata(id,authentication.getName(),request);
+    }
+
+    @PostMapping("/{id}/retire")
+    public Map<String,Object> retire(@PathVariable UUID id,Authentication authentication) {
+        return documents.retire(id,authentication.getName());
     }
 
     @PostMapping("/{id}/access-check")

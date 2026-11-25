@@ -57,7 +57,8 @@ export type Health = { status: string; service: string; timestamp: string };
 export type CurrentUser = { authenticated: boolean; username: string; authorities: string[] };
 export type DocumentItem = {
   id: string; title: string; department: string; classification: string;
-  status: string; created_at: string; owner: string;
+  status: string; created_at: string; owner: string; ownerUsername?: string;
+  description?: string; tags?: string[]; required_clearance?: number; attributes?: Record<string,string>; retention_until?: string|null;
 };
 export type DecisionItem = {
   id: string; action: string; outcome: 'ALLOW' | 'DENY'; reasonCode: string;
@@ -70,7 +71,8 @@ export type AuditItem = {
 
 export type GrantItem = {
   id: string; document: string; subject: string; permission: string;
-  expiresAt: string | null; revokedAt: string | null;
+  expiresAt: string | null; revokedAt: string | null; purpose?: string;
+  maxDownloads?: number | null; downloadCount?: number; startsAt?: string; createdBy?: string; status?: string;
 };
 
 

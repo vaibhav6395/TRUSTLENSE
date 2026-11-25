@@ -13,10 +13,14 @@ These capabilities are present in the repository; they are not a claim of produc
 
 - Session-based authentication with BCrypt password verification, CSRF protection and session ID rotation on login.
 - Account enabled/role refresh from PostgreSQL on authenticated requests.
-- Role and contextual authorization checks for document access.
-- Per-request grant checks, including expiry and revocation state.
+- Faculty signup approval workflow, production-only first administrator bootstrap, TOTP MFA before session issuance, encrypted MFA secrets, one-time recovery codes and database-backed password login throttling.
+- Administrator account enable/disable controls; disabled accounts are rejected by the session refresh filter on subsequent requests.
+- Live RBAC/ABAC evaluator using current roles, department, clearance, classification, tags and structured subject/resource attributes.
+- Versioned policy draft/simulation/independent approval/publication, historical decision replay and bounded Policy Impact Verification.
+- Owner/admin document metadata and lifecycle controls, retention expiry and retirement with grant revocation.
+- Per-request scheduled, expiring, revocable grant checks and download quotas.
 - Private server-side file storage with generated storage keys, upload size/type/signature checks and SHA-256 metadata.
-- Persistent access decisions and hash-linked audit event records.
+- Persistent access decisions with evidence snapshots and policy version references, plus hash-linked identity, policy, sharing, document and download audit events.
 - Flyway-managed schema and CI checks for builds, tests, dependency audit, image builds and a revocation smoke test.
 
 ## Phase 1 — Hackathon runnable baseline and production safety boundary
@@ -27,9 +31,17 @@ These capabilities are present in the repository; they are not a claim of produc
 - [x] Run backend tests, frontend tests/build, dependency audit, secret scan and both container image builds in GitHub Actions.
 - [x] Run the end-to-end smoke test proving revoked READ and DOWNLOAD grants block a still-authenticated session and reused file URL.
 - [ ] Add a dedicated integration test proving demo users are never seeded under the production profile.
+- [ ] Add end-to-end tests for pending faculty login denial, admin approval and full MFA enrollment/recovery.
+- [x] Add focused unit tests for per-request role refresh, disabled/deleted account rejection and anonymous filter pass-through.
+- [x] Add focused ABAC unit tests for guardrails, role/department/classification/tag/custom-attribute matching, deny-by-default, priority ordering, wildcard actions and grant-permission conditions.
+- [ ] Add browser/database integration tests for policy approval separation, download quotas, document retention and historical replay/PIV.
 - [ ] Validate production Compose configuration on the target host and verify the HTTPS reverse proxy, persistent volumes and backup restore.
 
-Latest recorded CI run for the production branch completed successfully across all five jobs: frontend, backend, secret-scan, containers and zero-trust-smoke. This validates the CI pipeline, not an independently operated deployment.
+Latest recorded CI run for the current feature branch is [run #112](https://github.com/vaibhav6395/TRUSTLENSE/actions/runs/45537059083), commit f8d307bd6cf8642f95dcc52070e61db3e8210db7. All five jobs passed: backend tests, frontend build/tests/dependency audit, secret scan, backend/frontend container builds, and the active-session grant-revocation smoke test. This validates the checked-in CI pipeline only; it is not an independently operated deployment or production security certification.
+
+## Workflow documentation
+
+The canonical user/admin demonstration sequence is documented in [USER-WORKFLOWS.md](USER-WORKFLOWS.md). Architecture and authorization semantics are described in [architecture.md](architecture.md) and [ACCESS-CONTROL-AND-SHARING.md](ACCESS-CONTROL-AND-SHARING.md).
 
 ## Phase 2 — Institutional identity and lifecycle
 
@@ -40,10 +52,11 @@ Latest recorded CI run for the production branch completed successfully across a
 
 ## Phase 3 — Authorization and policy governance
 
-- Specify a versioned policy model, supported attributes, conflict resolution and default-deny semantics.
-- Add policy draft, review, approval, publication, rollback and immutable version history.
-- Test object-level authorization for every read, download, grant and administrative endpoint.
-- Add decision explainability that records the policy version and trusted evidence used for each decision.
+- [x] Specify a constrained versioned JSON policy model, supported RBAC/ABAC attributes, priority conflict resolution and default-deny semantics.
+- [x] Add policy draft, server-side simulation, independent review/approval, publication and immutable version history.
+- [x] Add historical decision replay and bounded Policy Impact Verification.
+- [x] Add decision explainability with policy version and trusted evidence snapshots.
+- [ ] Complete an exhaustive object-level authorization matrix and browser/database integration test suite.
 
 ## Phase 4 — Institutional document protection
 

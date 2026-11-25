@@ -83,6 +83,7 @@ jobs:
       DEMO_DATA_ENABLED: "true"
       DEMO_FACULTY_PASSWORD: TrustLensFacultyCI#2026
       DEMO_ADMIN_PASSWORD: TrustLensAdminCI#2026
+      MFA_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

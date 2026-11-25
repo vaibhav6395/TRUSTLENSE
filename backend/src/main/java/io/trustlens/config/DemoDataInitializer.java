@@ -30,6 +30,7 @@ public class DemoDataInitializer implements CommandLineRunner {
         UUID adminId = ensureUser("admin", "Demo Security Administrator", "IT", adminPassword);
         assignRole(demoId, "FACULTY");
         assignRole(adminId, "SECURITY_ADMIN");
+        assignDefaultAdminAuthorities();
 
         UUID docId = jdbc.query("SELECT id FROM documents WHERE title = ?",
             rs -> rs.next() ? rs.getObject(1, UUID.class) : null, "TRUSTLENS Demo Research Proposal");
@@ -58,8 +59,17 @@ public class DemoDataInitializer implements CommandLineRunner {
 
     private void ensureRole(String code, String description) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM app_roles WHERE code=?", Integer.class, code);
-        if (count == null || count == 0) jdbc.update("INSERT INTO app_roles(id,code,description) VALUES (?,?,?)",
+        if (count == null || count == 0) jdbc.update("INSERT INTO app_roles(id,code,description,is_system) VALUES (?,?,?,TRUE)",
             UUID.randomUUID(), code, description);
+    }
+
+    private void assignDefaultAdminAuthorities() {
+        jdbc.update("""
+            INSERT INTO role_authorities(role_id,authority_code)
+            SELECT id, permission FROM app_roles
+            CROSS JOIN (VALUES ('PERM_USER_MANAGE'),('PERM_ROLE_MANAGE'),('PERM_POLICY_MANAGE'),('PERM_AUDIT_READ')) p(permission)
+            WHERE code='SECURITY_ADMIN' ON CONFLICT DO NOTHING
+            """);
     }
 
     private UUID ensureUser(String username, String displayName, String department, String password) {

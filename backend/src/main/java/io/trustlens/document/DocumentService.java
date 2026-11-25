@@ -2,7 +2,8 @@ package io.trustlens.document;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.trustlens.authorization.PolicyEvaluator;
+import io.trustlens.authorization.AbacPolicyEngine;
+import io.trustlens.authorization.PolicyLifecycleService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -25,33 +26,60 @@ public class DocumentService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final DocumentFileStorage storage;
+    private final AbacPolicyEngine policyEngine;
+    private final PolicyLifecycleService policies;
 
-    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper, DocumentFileStorage storage) {
+    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper, DocumentFileStorage storage,
+                           AbacPolicyEngine policyEngine, PolicyLifecycleService policies) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.storage = storage;
+        this.policyEngine = policyEngine;
+        this.policies = policies;
     }
 
     public java.util.List<Map<String, Object>> listVisible(String username) {
-        return jdbc.queryForList("""
-            SELECT DISTINCT d.id, d.title, d.department_code AS department,
-                   d.classification, d.status, d.created_at,
-                   u.display_name AS owner
-            FROM documents d
-            JOIN app_users u ON u.id=d.owner_id
-            JOIN app_users actor ON actor.username=?
-            WHERE actor.enabled=TRUE AND d.status='ACTIVE'
-              AND (d.owner_id=actor.id
-                   OR (d.classification='PUBLIC')
-                   OR EXISTS (SELECT 1 FROM access_grants g
-                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id
-                       AND g.permission IN ('READ','DOWNLOAD')
-                       AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > now()))
-                   OR (actor.department_code=d.department_code AND EXISTS (
-                     SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
-                     WHERE ur.user_id=actor.id AND r.code='SECURITY_ADMIN')))
-            ORDER BY d.created_at DESC
-            """, username);
+        Map<String,Object> actor=jdbc.queryForMap("SELECT id,department_code,enabled,clearance_level,attributes::text AS attributes FROM app_users WHERE username=?",username);
+        UUID actorId=(UUID)actor.get("id");
+        java.util.Set<String> roles=new java.util.HashSet<>(jdbc.queryForList(
+            "SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?",String.class,actorId));
+        var policy=policies.activeRules();
+        java.util.List<Map<String,Object>> visible=new java.util.ArrayList<>();
+        for(Map<String,Object> doc:jdbc.queryForList("""
+            SELECT d.id,d.title,d.department_code AS department,d.classification,d.status,d.created_at,
+                   d.description,d.tags::text AS tags,d.required_clearance,d.attributes::text AS attributes,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
+            FROM documents d JOIN app_users u ON u.id=d.owner_id
+            WHERE d.status='ACTIVE' ORDER BY d.created_at DESC
+            """)) {
+            UUID id=(UUID)doc.get("id");
+            boolean grant=Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                 AND permission='READ' AND starts_at<=now() AND revoked_at IS NULL
+                 AND (expires_at IS NULL OR expires_at>now()))
+                """,Boolean.class,id,actorId));
+            java.util.Set<String> tags=new java.util.HashSet<>();
+            Object raw=doc.get("tags");
+            if(raw!=null) try { tags.addAll(mapper.readValue(raw.toString(),new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>(){})); }
+            catch(Exception ignored) { }
+            doc.put("tags",tags.stream().sorted().toList());
+            int clearance=((Number)actor.get("clearance_level")).intValue();
+            int required=((Number)doc.get("required_clearance")).intValue();
+            java.util.Map<String,String> userAttributes=parseAttributes(actor.get("attributes"));
+            java.util.Map<String,String> resourceAttributes=parseAttributes(doc.get("attributes"));
+            doc.put("attributes",resourceAttributes);
+            Object retention=doc.get("retention_until");
+            boolean retentionValid=true;
+            if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
+            else if(retention instanceof java.sql.Timestamp ts) retentionValid=ts.toInstant().isAfter(java.time.Instant.now());
+            boolean active="ACTIVE".equals(doc.get("status"))&&retentionValid;
+            var decision=policyEngine.evaluate(policy,new AbacPolicyEngine.Context(
+                Boolean.TRUE.equals(actor.get("enabled")),active,actorId.equals(
+                    jdbc.queryForObject("SELECT owner_id FROM documents WHERE id=?",UUID.class,id)),
+                "READ",(String)actor.get("department_code"),(String)doc.get("department"),
+                (String)doc.get("classification"),clearance,required,roles,tags,userAttributes,resourceAttributes,grant));
+            if(decision.allowed()) visible.add(doc);
+        }
+        return visible;
     }
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
@@ -92,19 +120,43 @@ public class DocumentService {
         if (!java.nio.file.Files.isRegularFile(path)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
         }
+        jdbc.update("""
+            WITH selected AS (
+              SELECT id FROM access_grants WHERE document_id=?
+                AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
+                AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
+                AND (expires_at IS NULL OR expires_at>now())
+                AND (max_downloads IS NULL OR download_count<max_downloads)
+              ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+            )
+            UPDATE access_grants SET download_count=download_count+1 WHERE id IN (SELECT id FROM selected)
+            """,documentId,username);
+        jdbc.update("""
+            INSERT INTO document_download_events(id,document_id,user_id,grant_id)
+            VALUES (?, ?, (SELECT id FROM app_users WHERE username=?),
+              (SELECT id FROM access_grants WHERE document_id=? AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
+               AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at>now())
+               ORDER BY created_at DESC LIMIT 1))
+            """,UUID.randomUUID(),documentId,username,documentId,username);
+        UUID actorId=userId(username);
+        appendAudit(actorId,"DOCUMENT_DOWNLOADED",json(Map.of("documentId",documentId.toString())));
         return new DownloadFile(path, (String) doc.get("title"), contentType, ((Number) sizeValue).longValue());
     }
 
     @Transactional
-    public Map<String, Object> upload(MultipartFile file, String title, String classification, String username) throws IOException {
+    public Map<String, Object> upload(MultipartFile file, String title, String classification, String description, java.util.List<String> tags, int requiredClearance, String username) throws IOException {
         if (title == null || title.isBlank() || title.length() > 240) {
             throw new IllegalArgumentException("Title is required and must be at most 240 characters");
         }
         if (classification == null || !CLASSIFICATIONS.contains(classification)) {
             throw new IllegalArgumentException("Classification must be PUBLIC, INTERNAL, CONFIDENTIAL or RESTRICTED");
         }
+        if(requiredClearance<0||requiredClearance>5) throw new IllegalArgumentException("Required clearance must be between 0 and 5");
+        if(tags!=null&&(tags.size()>20||tags.stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
+            throw new IllegalArgumentException("Use at most 20 non-empty tags, each at most 40 characters");
         Map<String, Object> actor = jdbc.queryForMap(
-            "SELECT id, department_code FROM app_users WHERE username=? AND enabled=TRUE", username);
+            "SELECT id, department_code, clearance_level FROM app_users WHERE username=? AND enabled=TRUE", username);
         UUID ownerId = (UUID) actor.get("id");
         if ("PUBLIC".equals(classification) || "RESTRICTED".equals(classification)) {
             Boolean admin = jdbc.queryForObject("""
@@ -121,10 +173,11 @@ public class DocumentService {
         try {
             jdbc.update("""
                 INSERT INTO documents(id,title,owner_id,department_code,classification,storage_key,status,
-                                      content_type,size_bytes,content_sha256)
-                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?)
+                                      content_type,size_bytes,content_sha256,description,tags,required_clearance)
+                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?,?,CAST(? AS jsonb),?)
                 """, documentId, title.trim(), ownerId, actor.get("department_code"), classification,
-                stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256());
+                stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256(),
+                description==null?"":description.trim(),json(tags==null?java.util.List.of():tags),requiredClearance);
             appendAudit(ownerId, "DOCUMENT_UPLOADED", json(Map.of(
                 "documentId", documentId.toString(), "classification", classification,
                 "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256())));
@@ -133,8 +186,85 @@ public class DocumentService {
             throw ex;
         }
         return Map.of("id", documentId, "title", title.trim(), "classification", classification,
-                      "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
+                      "description",description==null?"":description.trim(),"tags",tags==null?java.util.List.of():tags,
+                      "requiredClearance",requiredClearance,"sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
     }
+
+    @Transactional
+    public Map<String,Object> updateMetadata(UUID documentId,String username,DocumentMetadataRequest request) {
+        UUID actorId=userId(username);
+        requireDocumentManager(documentId,actorId);
+        if(request.title()==null||request.title().isBlank()||request.title().length()>240)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Title is required and must be at most 240 characters");
+        if(request.classification()==null||!CLASSIFICATIONS.contains(request.classification()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid classification");
+        if("PUBLIC".equals(request.classification())||"RESTRICTED".equals(request.classification())){
+            Boolean admin=jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+                WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
+                """,Boolean.class,actorId);
+            if(!Boolean.TRUE.equals(admin)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only SECURITY_ADMIN may publish PUBLIC or RESTRICTED documents");
+        }
+        if(request.requiredClearance()<0||request.requiredClearance()>5)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Required clearance must be between 0 and 5");
+        if(request.tags()!=null&&(request.tags().size()>20||request.tags().stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid document tags");
+        java.sql.Timestamp retention=null;
+        if(request.retentionUntil()!=null&&!request.retentionUntil().isBlank()){
+            try{retention=java.sql.Timestamp.from(java.time.OffsetDateTime.parse(request.retentionUntil()).toInstant());}
+            catch(java.time.format.DateTimeParseException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"retentionUntil must be an ISO-8601 timestamp with timezone");}
+            if(!retention.toInstant().isAfter(java.time.Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Retention expiry must be in the future");
+        }
+        jdbc.update("""
+            UPDATE documents SET title=?,description=?,classification=?,tags=CAST(? AS jsonb),required_clearance=?,
+              retention_until=?,attributes=CAST(? AS jsonb),updated_at=now()
+            WHERE id=? AND status='ACTIVE'
+            """,request.title().trim(),request.description()==null?"":request.description().trim(),
+            request.classification(),json(request.tags()==null?java.util.List.of():request.tags()),
+            request.requiredClearance(),retention,json(request.attributes()==null?java.util.Map.of():request.attributes()),documentId);
+        appendAudit(actorId,"DOCUMENT_METADATA_UPDATED",json(Map.of("documentId",documentId.toString(),
+            "classification",request.classification(),"requiredClearance",request.requiredClearance())));
+        return Map.of("id",documentId,"updated",true);
+    }
+
+    @Transactional
+    public Map<String,Object> retire(UUID documentId,String username) {
+        UUID actorId=userId(username);
+        requireDocumentManager(documentId,actorId);
+        int changed=jdbc.update("UPDATE documents SET status='RETIRED',updated_at=now() WHERE id=? AND status='ACTIVE'",documentId);
+        if(changed!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Document is already retired or unavailable");
+        jdbc.update("UPDATE access_grants SET revoked_at=now(),revoked_by=? WHERE document_id=? AND revoked_at IS NULL",actorId,documentId);
+        appendAudit(actorId,"DOCUMENT_RETIRED",json(Map.of("documentId",documentId.toString())));
+        return Map.of("id",documentId,"status","RETIRED");
+    }
+
+    private java.util.Map<String,String> parseAttributes(Object raw) {
+        if(raw==null)return java.util.Map.of();
+        try {
+            java.util.Map<String,Object> values=mapper.readValue(raw.toString(),
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String,Object>>(){});
+            java.util.Map<String,String> result=new java.util.HashMap<>();
+            values.forEach((k,v)->{if(v!=null&&(v instanceof String||v instanceof Number||v instanceof Boolean))result.put(k,String.valueOf(v));});
+            return result;
+        } catch(Exception ex){return java.util.Map.of();}
+    }
+
+    private UUID userId(String username) {
+        UUID id=jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",rs->rs.next()?rs.getObject(1,UUID.class):null,username);
+        if(id==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return id;
+    }
+    private void requireDocumentManager(UUID documentId,UUID actorId) {
+        Boolean allowed=jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM documents d WHERE d.id=? AND
+              (d.owner_id=? OR EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+               WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')))
+            """,Boolean.class,documentId,actorId,actorId);
+        if(!Boolean.TRUE.equals(allowed)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Document owner or SECURITY_ADMIN role required");
+    }
+    public record DocumentMetadataRequest(String title,String description,String classification,
+        java.util.List<String> tags,int requiredClearance,String retentionUntil,java.util.Map<String,Object> attributes) {}
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> check(UUID documentId, String username, String action) {
@@ -146,10 +276,10 @@ public class DocumentService {
 
     private Map<String, Object> evaluateAndRecord(UUID documentId, String username, String action) {
         Map<String, Object> actor = jdbc.queryForMap(
-            "SELECT id, department_code, enabled FROM app_users WHERE username=?", username);
+            "SELECT id, department_code, enabled, clearance_level,attributes::text AS attributes FROM app_users WHERE username=?", username);
         Map<String, Object> doc;
         try {
-            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status FROM documents WHERE id=?", documentId);
+            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags::text AS tags, required_clearance,attributes::text AS attributes,retention_until FROM documents WHERE id=?", documentId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
         }
@@ -160,58 +290,86 @@ public class DocumentService {
         String docDept = (String) doc.get("department_code");
         String classification = (String) doc.get("classification");
         boolean enabled = Boolean.TRUE.equals(actor.get("enabled"));
-        boolean activeDocument = "ACTIVE".equals(doc.get("status"));
+        Object retention=doc.get("retention_until");
+        boolean retentionValid=true;
+        if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
+        else if(retention instanceof java.sql.Timestamp ts) retentionValid=ts.toInstant().isAfter(java.time.Instant.now());
+        boolean activeDocument="ACTIVE".equals(doc.get("status"))&&retentionValid;
         boolean owner = actorId.equals(ownerId);
-        boolean publicRead = "PUBLIC".equals(classification) && "READ".equals(action);
-        boolean securityAdmin = Boolean.TRUE.equals(jdbc.queryForObject("""
-            SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
-             WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
-            """, Boolean.class, actorId));
         String permission = "DOWNLOAD".equals(action) ? "DOWNLOAD" : "READ";
         Map<String, Object> grantState = jdbc.queryForMap("""
             SELECT
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
-                     AND permission=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active,
+                     AND permission=? AND starts_at <= now() AND revoked_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > now())
+                     AND (max_downloads IS NULL OR download_count < max_downloads)) AS active,
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
                      AND permission=? AND revoked_at IS NULL AND expires_at <= now()) AS expired,
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
-                     AND permission=? AND revoked_at IS NOT NULL) AS revoked
-            """, documentId, actorId, permission, documentId, actorId, permission,
-                 documentId, actorId, permission);
+                     AND permission=? AND revoked_at IS NOT NULL) AS revoked,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND max_downloads IS NOT NULL
+                     AND download_count>=max_downloads) AS exhausted,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND starts_at>now() AND revoked_at IS NULL) AS not_started
+            """,documentId,actorId,permission,documentId,actorId,permission,
+                 documentId,actorId,permission,documentId,actorId,permission,documentId,actorId,permission);
         boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
         boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
         boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
-        boolean departmentMatch = actorDept != null && actorDept.equals(docDept);
-        PolicyEvaluator.Result policyResult = PolicyEvaluator.evaluate(new PolicyEvaluator.Facts(
-            enabled, activeDocument, owner, publicRead, activeGrant,
-            securityAdmin && departmentMatch && "READ".equals(action)
-        ));
+        boolean exhaustedGrant = Boolean.TRUE.equals(grantState.get("exhausted"));
+        boolean notStartedGrant = Boolean.TRUE.equals(grantState.get("not_started"));
+        java.util.Set<String> roles = new java.util.HashSet<>(jdbc.queryForList("""
+            SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?
+            """, String.class, actorId));
+        Object rawTags = doc.get("tags");
+        java.util.Set<String> tags = new java.util.HashSet<>();
+        if(rawTags!=null) try { tags.addAll(mapper.readValue(rawTags.toString(),new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>(){})); }
+        catch(Exception ignored) { }
+        int actorClearance = ((Number)actor.get("clearance_level")).intValue();
+        int requiredClearance = ((Number)doc.get("required_clearance")).intValue();
+        java.util.Map<String,String> userAttributes=parseAttributes(actor.get("attributes"));
+        java.util.Map<String,String> resourceAttributes=parseAttributes(doc.get("attributes"));
+        var policyRules = policies.activeRules();
+        var policyResult = policyEngine.evaluate(policyRules,new AbacPolicyEngine.Context(
+            enabled,activeDocument,owner,action,actorDept,docDept,classification,
+            actorClearance,requiredClearance,roles,tags,userAttributes,resourceAttributes,activeGrant));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
-        if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
-        else if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
-        String explanation = allowed ? "The current server-side policy permits this action (" + reason + ")."
-            : "Access denied because no active policy condition permits this action (" + reason + ").";
+        if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
+        else if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
+        else if (!allowed && exhaustedGrant) reason = "GRANT_DOWNLOAD_LIMIT_REACHED";
+        else if (!allowed && notStartedGrant) reason = "GRANT_NOT_STARTED";
+        String explanation = policyResult.explanation();
         UUID decisionId = UUID.randomUUID();
-        String evidence = json(Map.of(
-            "actorDepartment", actorDept == null ? "" : actorDept,
-            "documentDepartment", docDept == null ? "" : docDept,
-            "classification", classification,
-            "accountEnabled", enabled,
-            "documentActive", activeDocument,
-            "owner", owner,
-            "activeGrant", activeGrant,
-            "grantExpired", expiredGrant,
-            "grantRevoked", revokedGrant,
-            "action", action
+        String evidence = json(Map.ofEntries(
+            Map.entry("actorDepartment", actorDept == null ? "" : actorDept),
+            Map.entry("documentDepartment", docDept == null ? "" : docDept),
+            Map.entry("classification", classification),
+            Map.entry("accountEnabled", enabled),
+            Map.entry("documentActive", activeDocument),
+            Map.entry("owner", owner),
+            Map.entry("actorRoles", roles),
+            Map.entry("actorClearance", actorClearance),
+            Map.entry("requiredClearance", requiredClearance),
+            Map.entry("documentTags", tags),
+            Map.entry("subjectAttributes",userAttributes),
+            Map.entry("resourceAttributes",resourceAttributes),
+            Map.entry("activeGrant", activeGrant),
+            Map.entry("grantExpired", expiredGrant),
+            Map.entry("grantRevoked", revokedGrant),
+            Map.entry("grantExhausted", exhaustedGrant),
+            Map.entry("grantNotStarted", notStartedGrant),
+            Map.entry("action", action)
         ));
+        UUID policyVersionId = policies.activeVersionId();
         jdbc.update("""
             INSERT INTO access_decisions(id,actor_user_id,document_id,action,outcome,reason_code,explanation,policy_version_id,evidence_snapshot)
-            VALUES (?,?,?,?,?,?,?,NULL,CAST(? AS jsonb))
-            """, decisionId, actorId, documentId, action, allowed ? "ALLOW" : "DENY", reason, explanation, evidence);
-        appendAudit(actorId, "ACCESS_" + (allowed ? "ALLOW" : "DENY"),
-            json(Map.of("decisionId", decisionId.toString(), "documentId", documentId.toString(),
-                        "action", action, "reasonCode", reason)));
+            VALUES (?,?,?,?,?,?,?,?,CAST(? AS jsonb))
+            """, decisionId, actorId, documentId, action, allowed ? "ALLOW" : "DENY", reason, explanation, policyVersionId, evidence);
+        appendAudit(actorId,"ACCESS_"+(allowed?"ALLOW":"DENY"),
+            json(Map.of("decisionId",decisionId.toString(),"documentId",documentId.toString(),
+                "action",action,"reasonCode",reason,"policyVersionId",policyVersionId==null?"BASELINE":policyVersionId.toString())));
         return Map.of("decisionId", decisionId, "allowed", allowed,
                       "outcome", allowed ? "ALLOW" : "DENY",
                       "reasonCode", reason, "explanation", explanation);

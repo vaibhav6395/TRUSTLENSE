@@ -29,11 +29,15 @@ public class DatabaseUserDetailsService implements UserDetailsService {
             "SELECT r.code FROM app_roles r JOIN user_roles ur ON ur.role_id = r.id JOIN app_users u ON u.id = ur.user_id WHERE u.username = ?",
             (rs, rowNum) -> rs.getString(1), username
         );
-        String[] authorities = roles.stream().map(r -> "ROLE_" + r).toArray(String[]::new);
+        List<String> authorities = new java.util.ArrayList<>();
+        roles.stream().map(r -> "ROLE_" + r).forEach(authorities::add);
+        authorities.addAll(jdbc.query(
+            "SELECT DISTINCT ra.authority_code FROM role_authorities ra JOIN user_roles ur ON ur.role_id=ra.role_id JOIN app_users u ON u.id=ur.user_id WHERE u.username=?",
+            (rs, rowNum) -> rs.getString(1), username));
         return User.withUsername((String) row[0])
             .password((String) row[1])
             .disabled(!(Boolean) row[2])
-            .authorities(authorities)
+            .authorities(authorities.toArray(String[]::new))
             .build();
     }
 }
