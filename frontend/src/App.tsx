@@ -365,7 +365,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
   const [error,setError]=useState('');const [busy,setBusy]=useState('');
   const [subject,setSubject]=useState('');const [documentId,setDocumentId]=useState('');
   const [permission,setPermission]=useState('READ');const [purpose,setPurpose]=useState('');
-  const [expiresAt,setExpiresAt]=useState('');const [maxDownloads,setMaxDownloads]=useState('');
+  const [startsAt,setStartsAt]=useState('');const [expiresAt,setExpiresAt]=useState('');const [maxDownloads,setMaxDownloads]=useState('');
   const isAdmin=user.authorities.includes('ROLE_SECURITY_ADMIN');
   const shareable=documents.filter(d=>isAdmin||d.ownerUsername===user.username);
   async function load(){try{setGrants(await apiGet<GrantItem[]>('/api/v1/grants'));setError('');}
@@ -376,9 +376,9 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
     catch(e){setError(e instanceof Error?e.message:'Revocation failed');}finally{setBusy('');}}
   async function createShare(e:FormEvent){e.preventDefault();setBusy('create');setError('');
     try{await apiPost('/api/v1/grants',{documentId,subjectUsername:subject.trim(),permission,
-      expiresAt:expiresAt?new Date(expiresAt).toISOString():null,purpose,
+      startsAt:startsAt?new Date(startsAt).toISOString():null,expiresAt:expiresAt?new Date(expiresAt).toISOString():null,purpose,
       maxDownloads:maxDownloads?Number(maxDownloads):null});
-      setSubject('');setPurpose('');setExpiresAt('');setMaxDownloads('');await load();await onChanged();}
+      setSubject('');setPurpose('');setStartsAt('');setExpiresAt('');setMaxDownloads('');await load();await onChanged();}
     catch(e){setError(e instanceof Error?e.message:'Share creation failed');}finally{setBusy('');}}
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="RBAC, ABAC attributes and controlled sharing"/>
     {error&&<div className="connection-notice">{error}</div>}
@@ -395,6 +395,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
         <input aria-label="Recipient username" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Recipient username" required/>
         <select aria-label="Permission" value={permission} onChange={e=>setPermission(e.target.value)}><option value="READ">READ</option><option value="DOWNLOAD">DOWNLOAD</option></select>
         <input aria-label="Share purpose" value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="Purpose / reason" maxLength={500}/>
+        <input aria-label="Grant starts at" type="datetime-local" value={startsAt} onChange={e=>setStartsAt(e.target.value)}/>
         <input aria-label="Grant expiry" type="datetime-local" value={expiresAt} onChange={e=>setExpiresAt(e.target.value)}/>
         <input aria-label="Maximum downloads" type="number" min="1" max="10000" value={maxDownloads} onChange={e=>setMaxDownloads(e.target.value)} placeholder="Download limit (optional)"/>
         <button className="primary" disabled={busy==='create'}>{busy==='create'?'Sharing…':'Create share grant'}</button>
@@ -403,7 +404,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
     <section className="panel">
       <div className="panel-heading"><div><span className="eyebrow">GRANT LEDGER</span><h3>Current and historical shares</h3></div><History size={19}/></div>
       <div className="table-wrap"><table><thead><tr><th>DOCUMENT / PURPOSE</th><th>RECIPIENT</th><th>PERMISSION</th><th>EXPIRY / DOWNLOADS</th><th>STATUS</th><th/></tr></thead><tbody>
-        {grants.map(g=><tr key={g.id}><td>{g.document}<small>{g.purpose||'No purpose specified'}</small></td><td>{g.subject}</td><td>{g.permission}</td><td>{g.expiresAt?new Date(g.expiresAt).toLocaleString():'No expiry'}<small>{g.maxDownloads?(`${g.downloadCount??0}/${g.maxDownloads} downloads`):'No download cap'}</small></td><td><Badge tone={g.revokedAt?'red':'green'}>{g.revokedAt?'REVOKED':'ACTIVE'}</Badge></td><td>{!g.revokedAt&&<button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke'}</button>}</td></tr>)}
+        {grants.map(g=><tr key={g.id}><td>{g.document}<small>{g.purpose||'No purpose specified'}</small></td><td>{g.subject}</td><td>{g.permission}</td><td>{g.expiresAt?new Date(g.expiresAt).toLocaleString():'No expiry'}<small>{g.maxDownloads?(`${g.downloadCount??0}/${g.maxDownloads} downloads`):'No download cap'}</small></td><td><Badge tone={g.status==='ACTIVE'?'green':g.status==='REVOKED'||g.status==='EXPIRED'||g.status==='EXHAUSTED'?'red':'amber'}>{g.status??(g.revokedAt?'REVOKED':'ACTIVE')}</Badge></td><td>{!g.revokedAt&&<button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke'}</button>}</td></tr>)}
       </tbody></table>{grants.length===0&&<div className="empty">No grants created yet.</div>}</div>
     </section>
   </>;
