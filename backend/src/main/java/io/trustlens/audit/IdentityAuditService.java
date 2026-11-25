@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IdentityAuditService {
@@ -19,6 +20,7 @@ public class IdentityAuditService {
         this.jdbc = jdbc; this.mapper = mapper;
     }
 
+    @Transactional
     public void record(String actorUsername, String eventType, Map<String,Object> details) {
         UUID actorId = null;
         if (actorUsername != null) {
