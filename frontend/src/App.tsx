@@ -364,15 +364,15 @@ function FacultyRequests() {
 }
 type ManagedUser = {
   id:string;username:string;displayName:string;departmentCode:string;enabled:boolean;
-  mfaEnabled:boolean;roles:string;clearanceLevel:number;institutionalEmail?:string;
+  mfaEnabled:boolean;roles:string;clearanceLevel:number;institutionalEmail?:string;attributes:string;
 };
 function AdminUsers() {
   const [users,setUsers]=useState<ManagedUser[]>([]);
   const [error,setError]=useState('');const [busy,setBusy]=useState('');
   const [roleChoice,setRoleChoice]=useState<Record<string,string>>({});
-  const [profiles,setProfiles]=useState<Record<string,{departmentCode:string;clearanceLevel:number}>>({});
+  const [profiles,setProfiles]=useState<Record<string,{departmentCode:string;clearanceLevel:number;attributes:string}>>({});
   async function load(){try{const data=await apiGet<ManagedUser[]>('/api/v1/admin/users');setUsers(data);
-    setProfiles(Object.fromEntries(data.map(u=>[u.username,{departmentCode:u.departmentCode,clearanceLevel:u.clearanceLevel??0}])));setError('');}
+    setProfiles(Object.fromEntries(data.map(u=>[u.username,{departmentCode:u.departmentCode,clearanceLevel:u.clearanceLevel??0,attributes:typeof u.attributes==='string'?u.attributes:JSON.stringify(u.attributes??{},null,2)}])));setError('');}
     catch(e){setError(e instanceof Error?e.message:'Could not load accounts');}}
   useEffect(()=>{void load();},[]);
   async function toggle(user:ManagedUser){setBusy(user.username);setError('');
@@ -382,7 +382,7 @@ function AdminUsers() {
     try{const method=remove?'DELETE':'POST';await apiRequest(`/api/v1/admin/users/${encodeURIComponent(username)}/roles/${role}`,{method});await load();}
     catch(e){setError(e instanceof Error?e.message:'Role update failed');}finally{setBusy('');}}
   async function saveProfile(username:string){const profile=profiles[username];if(!profile)return;setBusy(username);setError('');
-    try{await apiRequest(`/api/v1/admin/users/${encodeURIComponent(username)}/access-profile`,{method:'PATCH',body:JSON.stringify({...profile,attributes:{}})});await load();}
+    try{await apiRequest(`/api/v1/admin/users/${encodeURIComponent(username)}/access-profile`,{method:'PATCH',body:JSON.stringify({...profile,attributes:JSON.parse(profile.attributes||'{}')})});await load();}
     catch(e){setError(e instanceof Error?e.message:'Access profile update failed');}finally{setBusy('');}}
   return <section className="panel">
     <div className="panel-heading"><div><span className="eyebrow">ACCOUNT LIFECYCLE & RBAC</span><h3>Campus accounts and access profiles</h3></div><Users size={19}/></div>
@@ -394,7 +394,8 @@ function AdminUsers() {
         <td>{u.roles||'No role'}<div className="toolbar"><select aria-label={`Role for ${u.username}`} value={roleChoice[u.username]??'FACULTY'} onChange={e=>setRoleChoice(v=>({...v,[u.username]:e.target.value}))}><option>FACULTY</option><option>STUDENT</option><option>STAFF</option><option>SECURITY_ADMIN</option></select><button className="secondary" disabled={busy===u.username} onClick={()=>void assignRole(u.username,roleChoice[u.username]??'FACULTY')}>Add</button></div>
           <div className="toolbar">{['FACULTY','STUDENT','STAFF','SECURITY_ADMIN'].filter(role=>u.roles.split(',').includes(role)).map(role=><button key={role} className="secondary" disabled={busy===u.username} onClick={()=>void assignRole(u.username,role,true)}>Remove {role}</button>)}</div>
         </td>
-        <td><input aria-label={`Department for ${u.username}`} value={profiles[u.username]?.departmentCode??''} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{clearanceLevel:0}),departmentCode:e.target.value}}))}/><select aria-label={`Clearance for ${u.username}`} value={profiles[u.username]?.clearanceLevel??0} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{departmentCode:u.departmentCode}),clearanceLevel:Number(e.target.value)}}))}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select><button className="secondary" disabled={busy===u.username} onClick={()=>void saveProfile(u.username)}>Save profile</button></td>
+        <td><input aria-label={`Department for ${u.username}`} value={profiles[u.username]?.departmentCode??''} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{clearanceLevel:0,attributes:'{}'}),departmentCode:e.target.value}}))}/><select aria-label={`Clearance for ${u.username}`} value={profiles[u.username]?.clearanceLevel??0} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{departmentCode:u.departmentCode}),clearanceLevel:Number(e.target.value),attributes:profiles[u.username]?.attributes??'{}'}}))}>{[0,1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select><textarea aria-label={`Custom attributes for ${u.username}`} rows={3} value={profiles[u.username]?.attributes??'{}'} onChange={e=>setProfiles(v=>({...v,[u.username]:{...(v[u.username]??{departmentCode:u.departmentCode,clearanceLevel:u.clearanceLevel}),attributes:e.target.value}}))}/>
+          <button className="secondary" disabled={busy===u.username} onClick={()=>void saveProfile(u.username)}>Save profile</button></td>
         <td><Badge tone={u.mfaEnabled?'green':'amber'}>{u.mfaEnabled?'MFA ON':'MFA SETUP'}</Badge><Badge tone={u.enabled?'green':'red'}>{u.enabled?'ACTIVE':'DISABLED'}</Badge></td>
         <td><button className="secondary" disabled={busy===u.username} onClick={()=>void toggle(u)}>{busy===u.username?'Saving…':u.enabled?'Disable':'Enable'}</button></td>
       </tr>)}
