@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import io.trustlens.audit.IdentityAuditService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +21,10 @@ import org.springframework.web.server.ResponseStatusException;
 public class FacultyOnboardingController {
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwords;
+    private final IdentityAuditService audit;
 
-    public FacultyOnboardingController(JdbcTemplate jdbc, PasswordEncoder passwords) {
-        this.jdbc = jdbc; this.passwords = passwords;
+    public FacultyOnboardingController(JdbcTemplate jdbc, PasswordEncoder passwords, IdentityAuditService audit) {
+        this.jdbc = jdbc; this.passwords = passwords; this.audit = audit;
     }
 
     public record SignupRequest(
@@ -54,6 +56,8 @@ public class FacultyOnboardingController {
             """, UUID.randomUUID(), username, email, passwords.encode(request.password()),
             request.displayName().trim(), request.departmentCode().trim().toUpperCase(),
             request.facultyIdentifier().trim());
+        audit.record(null, "FACULTY_SIGNUP_SUBMITTED", Map.of("username", username,
+            "departmentCode", request.departmentCode().trim().toUpperCase()));
         return Map.of("submitted", true, "status", "PENDING",
             "message", "Your faculty request is awaiting administrator verification.");
     }
@@ -87,6 +91,7 @@ public class FacultyOnboardingController {
             UPDATE faculty_signup_requests SET status='APPROVED',review_note=?,reviewed_by=
               (SELECT id FROM app_users WHERE username=?),reviewed_at=now() WHERE id=?
             """, review == null ? null : review.note(), admin.getName(), id);
+        audit.record(admin.getName(), "FACULTY_SIGNUP_APPROVED", Map.of("username", username));
         return Map.of("approved", true, "username", username, "nextStep", "Faculty member must enroll MFA at first login.");
     }
 
@@ -99,6 +104,7 @@ public class FacultyOnboardingController {
             UPDATE faculty_signup_requests SET status='REJECTED',review_note=?,reviewed_by=
               (SELECT id FROM app_users WHERE username=?),reviewed_at=now() WHERE id=?
             """, review == null ? null : review.note(), admin.getName(), id);
+        audit.record(admin.getName(), "FACULTY_SIGNUP_REJECTED", Map.of("requestId", id.toString()));
         return Map.of("rejected", true);
     }
 
