@@ -293,6 +293,36 @@ function FacultyRequests() {
     </tbody></table>{requests.length===0 && <div className="empty">No faculty signup requests.</div>}</div>
   </section>;
 }
+type ManagedUser = {
+  id: string; username: string; displayName: string; departmentCode: string;
+  enabled: boolean; mfaEnabled: boolean; roles: string;
+};
+function AdminUsers() {
+  const [users,setUsers] = useState<ManagedUser[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  async function load() {
+    try { setUsers(await apiGet<ManagedUser[]>('/api/v1/admin/users')); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load accounts'); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function toggle(user: ManagedUser) {
+    setBusy(user.username); setError('');
+    try {
+      await apiPost(`/api/v1/admin/users/${encodeURIComponent(user.username)}/${user.enabled?'disable':'enable'}`);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Account update failed'); }
+    finally { setBusy(''); }
+  }
+  return <section className="panel">
+    <div className="panel-heading"><div><span className="eyebrow">ACCOUNT LIFECYCLE</span><h3>Campus accounts</h3></div><Users size={19}/></div>
+    <p className="muted">Disablement takes effect on the next protected request. The backend prevents disabling the last active security administrator.</p>
+    {error && <div className="connection-notice">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>ACCOUNT</th><th>ROLE / DEPARTMENT</th><th>MFA</th><th>STATUS</th><th/></tr></thead><tbody>
+      {users.map(u=><tr key={u.id}><td><strong>{u.displayName}</strong><small>{u.username}</small></td><td>{u.roles || 'No role'}<small>{u.departmentCode}</small></td><td><Badge tone={u.mfaEnabled?'green':'amber'}>{u.mfaEnabled?'ENROLLED':'PENDING'}</Badge></td><td><Badge tone={u.enabled?'green':'red'}>{u.enabled?'ACTIVE':'DISABLED'}</Badge></td><td><button className="secondary" disabled={busy===u.username} onClick={()=>void toggle(u)}>{busy===u.username?'Saving…':u.enabled?'Disable':'Enable'}</button></td></tr>)}
+    </tbody></table>{users.length===0 && <div className="empty">No accounts found.</div>}</div>
+  </section>;
+}
 function People({ user, documents, onChanged }: { user: CurrentUser; documents: DocumentItem[]; onChanged: () => Promise<void> }) {
   const [grants,setGrants] = useState<GrantItem[]>([]);
   const [error,setError] = useState('');
@@ -327,7 +357,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
     {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
     {error && <div className="connection-notice">{error}</div>}
-    {isAdmin && <><FacultyRequests/><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
+    {isAdmin && <><FacultyRequests/><AdminUsers/><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
       <form className="toolbar" onSubmit={createGrant}>
         <select aria-label="Document" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
           <option value="">Select document</option>{documents.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
