@@ -14,14 +14,15 @@ public class AuditController {
 
     @GetMapping
     public List<Map<String, Object>> list(Authentication auth) {
+        boolean fullAudit = auth.getAuthorities().stream().anyMatch(a ->
+            a.getAuthority().equals("ROLE_SECURITY_ADMIN") || a.getAuthority().equals("PERM_AUDIT_READ"));
         return jdbc.queryForList("""
             SELECT e.id, e.sequence_no AS "sequence", e.event_type AS "eventType",
                    e.payload, e.previous_hash AS "previousHash", e.event_hash AS "eventHash",
                    e.occurred_at AS "occurredAt", u.username AS actor
             FROM audit_events e LEFT JOIN app_users u ON u.id=e.actor_user_id
-            WHERE u.username=? OR EXISTS (SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
-                JOIN app_users a ON a.id=ur.user_id WHERE a.username=? AND r.code='SECURITY_ADMIN')
+            WHERE ? OR u.username=?
             ORDER BY e.sequence_no DESC LIMIT 100
-            """, auth.getName(), auth.getName());
+            """, fullAudit, auth.getName());
     }
 }
