@@ -267,9 +267,14 @@ public class DocumentService {
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
                      AND permission=? AND revoked_at IS NULL AND expires_at <= now()) AS expired,
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
-                     AND permission=? AND revoked_at IS NOT NULL) AS revoked
-            """, documentId, actorId, permission, documentId, actorId, permission,
-                 documentId, actorId, permission);
+                     AND permission=? AND revoked_at IS NOT NULL) AS revoked,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND revoked_at IS NULL AND max_downloads IS NOT NULL
+                     AND download_count>=max_downloads) AS exhausted,
+              EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                     AND permission=? AND starts_at>now() AND revoked_at IS NULL) AS not_started
+            """,documentId,actorId,permission,documentId,actorId,permission,
+                 documentId,actorId,permission,documentId,actorId,permission,documentId,actorId,permission);
         boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
         boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
         boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
