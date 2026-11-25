@@ -63,8 +63,10 @@ public class DocumentService {
             int clearance=((Number)actor.get("clearance_level")).intValue();
             int required=((Number)doc.get("required_clearance")).intValue();
             Object retention=doc.get("retention_until");
-            boolean active= "ACTIVE".equals(doc.get("status")) &&
-                (retention==null || ((java.sql.Timestamp)retention).toInstant().isAfter(java.time.Instant.now()));
+            boolean retentionValid=true;
+            if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
+            else if(retention instanceof java.sql.Timestamp ts) retentionValid=ts.toInstant().isAfter(java.time.Instant.now());
+            boolean active="ACTIVE".equals(doc.get("status"))&&retentionValid;
             var decision=policyEngine.evaluate(policy,new AbacPolicyEngine.Context(
                 Boolean.TRUE.equals(actor.get("enabled")),active,actorId.equals(
                     jdbc.queryForObject("SELECT owner_id FROM documents WHERE id=?",UUID.class,id)),
@@ -236,7 +238,7 @@ public class DocumentService {
             "SELECT id, department_code, enabled, clearance_level FROM app_users WHERE username=?", username);
         Map<String, Object> doc;
         try {
-            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags, required_clearance FROM documents WHERE id=?", documentId);
+            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags, required_clearance,retention_until FROM documents WHERE id=?", documentId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
         }
@@ -247,7 +249,11 @@ public class DocumentService {
         String docDept = (String) doc.get("department_code");
         String classification = (String) doc.get("classification");
         boolean enabled = Boolean.TRUE.equals(actor.get("enabled"));
-        boolean activeDocument = "ACTIVE".equals(doc.get("status"));
+        Object retention=doc.get("retention_until");
+        boolean retentionValid=true;
+        if(retention instanceof java.time.OffsetDateTime odt) retentionValid=odt.toInstant().isAfter(java.time.Instant.now());
+        else if(retention instanceof java.sql.Timestamp ts) retentionValid=ts.toInstant().isAfter(java.time.Instant.now());
+        boolean activeDocument="ACTIVE".equals(doc.get("status"))&&retentionValid;
         boolean owner = actorId.equals(ownerId);
         String permission = "DOWNLOAD".equals(action) ? "DOWNLOAD" : "READ";
         Map<String, Object> grantState = jdbc.queryForMap("""
