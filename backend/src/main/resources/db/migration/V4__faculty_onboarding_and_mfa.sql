@@ -41,3 +41,12 @@ CREATE TABLE auth_login_attempts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_auth_login_attempts_lock ON auth_login_attempts(locked_until);
+
+CREATE TABLE mfa_recovery_codes (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    code_hash CHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(user_id, code_hash)
+);
+CREATE INDEX idx_mfa_recovery_user ON mfa_recovery_codes(user_id);
