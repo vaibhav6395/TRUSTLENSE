@@ -263,6 +263,36 @@ function AuditHistory({ audit }: { audit: AuditItem[] }) {
     {audit.length===0 && <div className="empty">No audit events recorded yet.</div>}
   </>;
 }
+type FacultySignupRequest = {
+  id: string; username: string; institutionalEmail: string; displayName: string;
+  departmentCode: string; facultyIdentifier: string; status: string; reviewNote: string|null; createdAt: string;
+};
+function FacultyRequests() {
+  const [requests,setRequests] = useState<FacultySignupRequest[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  async function load() {
+    try { setRequests(await apiGet<FacultySignupRequest[]>('/api/v1/admin/signup-requests')); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load faculty requests'); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function review(id: string, action: 'approve'|'reject') {
+    setBusy(id); setError('');
+    try {
+      await apiPost(`/api/v1/admin/signup-requests/${id}/${action}`, {note: action==='approve'?'Institutional details verified':'Request rejected after review'});
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Review action failed'); }
+    finally { setBusy(''); }
+  }
+  return <section className="panel">
+    <div className="panel-heading"><div><span className="eyebrow">IDENTITY VERIFICATION</span><h3>Faculty signup requests</h3></div><Users size={19}/></div>
+    <p className="muted">Review institutional identity details before an account is created. Approved faculty must enroll MFA at first sign-in.</p>
+    {error && <div className="connection-notice">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>APPLICANT</th><th>INSTITUTIONAL DETAILS</th><th>STATUS</th><th>REVIEW</th></tr></thead><tbody>
+      {requests.map(r=><tr key={r.id}><td><strong>{r.displayName}</strong><small>{r.username}</small></td><td>{r.institutionalEmail}<small>{r.departmentCode} · ID {r.facultyIdentifier}</small></td><td><Badge tone={r.status==='APPROVED'?'green':r.status==='REJECTED'?'red':'amber'}>{r.status}</Badge></td><td>{r.status==='PENDING' ? <div className="toolbar"><button className="primary" disabled={busy===r.id} onClick={()=>void review(r.id,'approve')}>Approve</button><button className="secondary" disabled={busy===r.id} onClick={()=>void review(r.id,'reject')}>Reject</button></div> : (r.reviewNote ?? 'Reviewed')}</td></tr>)}
+    </tbody></table>{requests.length===0 && <div className="empty">No faculty signup requests.</div>}</div>
+  </section>;
+}
 function People({ user, documents, onChanged }: { user: CurrentUser; documents: DocumentItem[]; onChanged: () => Promise<void> }) {
   const [grants,setGrants] = useState<GrantItem[]>([]);
   const [error,setError] = useState('');
@@ -297,7 +327,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
     {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
     {error && <div className="connection-notice">{error}</div>}
-    {isAdmin && <><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
+    {isAdmin && <><FacultyRequests/><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
       <form className="toolbar" onSubmit={createGrant}>
         <select aria-label="Document" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
           <option value="">Select document</option>{documents.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
