@@ -89,7 +89,7 @@ public class AuthController {
                                          HttpServletResponse response) {
         if (body.username() == null || body.challengeToken() == null || body.code() == null)
             throw new IllegalArgumentException("Username, challenge and authenticator code are required");
-        challenges.verify(body.challengeToken(), body.code(), body.username());
+        java.util.List<String> recoveryCodes = challenges.verify(body.challengeToken(), body.code(), body.username());
         UserDetails principal = users.loadUserByUsername(body.username());
         Authentication authenticated = UsernamePasswordAuthenticationToken.authenticated(
             principal, null, principal.getAuthorities());
@@ -99,7 +99,8 @@ public class AuthController {
         SecurityContextHolder.setContext(context);
         new HttpSessionSecurityContextRepository().saveContext(context, request, response);
         return Map.of("authenticated", true, "username", authenticated.getName(),
-            "authorities", authenticated.getAuthorities().stream().map(a -> a.getAuthority()).toList());
+            "authorities", authenticated.getAuthorities().stream().map(a -> a.getAuthority()).toList(),
+            "recoveryCodes", recoveryCodes);
     }
 
     @PostMapping("/logout")
