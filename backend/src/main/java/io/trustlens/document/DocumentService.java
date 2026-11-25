@@ -116,11 +116,15 @@ public class DocumentService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
         }
         jdbc.update("""
-            UPDATE access_grants SET download_count=download_count+1
-            WHERE document_id=? AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
-              AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at>now())
-              AND (max_downloads IS NULL OR download_count<max_downloads)
+            WITH selected AS (
+              SELECT id FROM access_grants WHERE document_id=?
+                AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
+                AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
+                AND (expires_at IS NULL OR expires_at>now())
+                AND (max_downloads IS NULL OR download_count<max_downloads)
+              ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+            )
+            UPDATE access_grants SET download_count=download_count+1 WHERE id IN (SELECT id FROM selected)
             """,documentId,username);
         jdbc.update("""
             INSERT INTO document_download_events(id,document_id,user_id,grant_id)
