@@ -6,6 +6,7 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import io.trustlens.audit.IdentityAuditService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,10 +16,11 @@ import org.springframework.http.HttpStatus;
 public class MfaChallengeService {
     private final JdbcTemplate jdbc;
     private final TotpService totp;
+    private final IdentityAuditService audit;
     private final SecureRandom random = new SecureRandom();
 
-    public MfaChallengeService(JdbcTemplate jdbc, TotpService totp) {
-        this.jdbc = jdbc; this.totp = totp;
+    public MfaChallengeService(JdbcTemplate jdbc, TotpService totp, IdentityAuditService audit) {
+        this.jdbc = jdbc; this.totp = totp; this.audit = audit;
     }
 
     public record Challenge(String token, String purpose) {}
@@ -34,6 +36,7 @@ public class MfaChallengeService {
             INSERT INTO auth_mfa_challenges(id,user_id,token_hash,purpose,expires_at)
             VALUES (?,?,?,?,now() + interval '5 minutes')
             """, UUID.randomUUID(), userId, TotpService.sha256(token), purpose);
+        audit.record(username, "MFA_CHALLENGE_ISSUED", Map.of("purpose", purpose));
         return new Challenge(token, purpose);
     }
 
@@ -70,6 +73,8 @@ public class MfaChallengeService {
                 """, encrypted, username);
         }
         jdbc.update("DELETE FROM auth_mfa_challenges WHERE id=?", challenge.get("id"));
+        audit.record(username, "ENROLL".equals(purpose) ? "MFA_ENROLLED" : "MFA_LOGIN_VERIFIED",
+            Map.of("method", "TOTP"));
     }
 
     private Map<String,Object> findChallenge(String token, String expectedPurpose, String username) {
