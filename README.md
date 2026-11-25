@@ -24,7 +24,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Faculty signup requests are stored separately from active users; pending/rejected requests cannot authenticate.
 - SECURITY_ADMIN-only approval/rejection creates the faculty account and records the reviewer and decision in the hash-linked audit history.
 - Password verification is only the first authentication stage. A short-lived, single-use MFA challenge must be completed before an authenticated session is issued.
-- TOTP enrollment and verification, AES-256-GCM encrypted MFA secrets, and a five-attempt limit per MFA challenge.
+- TOTP enrollment and verification, AES-256-GCM encrypted MFA secrets, ten single-use SHA-256-hashed recovery codes, a five-attempt limit per MFA challenge, and a database-backed 5-failures/15-minute password login throttle.
 - Production first-admin bootstrap is performed by the backend from environment variables; no public administrator signup endpoint exists.
 - Deny-by-default authorization using authenticated identity, account state, document state, owner, public READ, active READ/DOWNLOAD grants, and same-department SECURITY_ADMIN READ.
 - Grant creation with expiry validation, admin-only revocation, and audit events.
@@ -42,7 +42,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Policy versioning, approvals, PIV, historical replay and independent signed audit checkpoints are not implemented.
 - A downloaded file cannot be recalled after the recipient has saved or copied it.
 - File type checks are not malware scanning; use only synthetic demo files.
-- Password-stage login rate limiting, MFA recovery codes and administrator-assisted MFA reset are not implemented yet.
+- Administrator-assisted MFA reset and campus directory/SSO verification are not implemented yet.
 - Institutional email/faculty-ID verification is a manual administrator process; no campus directory or SSO connector is configured.
 - Monitoring, backup/restore drills and independent security review remain required.
 
@@ -190,7 +190,7 @@ cd backend
 DEMO_DATA_ENABLED=true COOKIE_SECURE=false mvn spring-boot:run
 ```
 
-Keep this terminal open. On first startup, Flyway applies the database migrations and the demo initializer creates the `demo` and `admin` users using the passwords in `.env`. On first sign-in, each account must enroll an authenticator app before a session is issued. The setup key is displayed once; enter it into an authenticator app and submit its current six-digit code.
+Keep this terminal open. On first startup, Flyway applies the database migrations and the demo initializer creates the `demo` and `admin` users using the passwords in `.env`. On first sign-in, each account must enroll an authenticator app before a session is issued. The setup key is displayed once; enter it into an authenticator app and submit its current six-digit code. Ten single-use recovery codes are then displayed once—save them privately.
 
 If your Maven installation does not resolve the Spring Boot plugin using the short goal, run:
 
