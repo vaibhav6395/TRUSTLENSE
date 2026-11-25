@@ -3,6 +3,8 @@
 app:
   demo-data:
     enabled: false
+  bootstrap-admin:
+    enabled: ${BOOTSTRAP_ADMIN_ENABLED:true}
 
 server:
   forward-headers-strategy: framework
@@ -23,6 +25,3 @@ spring:
   jpa:
     open-in-view: false
 
-app:
-  bootstrap-admin:
-    enabled: ${BOOTSTRAP_ADMIN_ENABLED:true}
