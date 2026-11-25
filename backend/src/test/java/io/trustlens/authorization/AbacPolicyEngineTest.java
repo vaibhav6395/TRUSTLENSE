@@ -47,4 +47,16 @@ class AbacPolicyEngineTest {
         var blocked=engine.evaluate(deny,context(true,true,false,"DOWNLOAD","CSE","CSE","INTERNAL",4,0,Set.of("FACULTY"),Set.of("exam"),false));
         assertFalse(blocked.allowed());assertEquals("EXAM_RESTRICTED",blocked.reasonCode());
     }
+
+    @Test void matchesCustomSubjectAndResourceAttributes() throws Exception {
+        var p=policy("{\"rules\":[{\"id\":\"verified-lab\",\"effect\":\"ALLOW\",\"priority\":20,\"actions\":[\"READ\"],\"subject\":{\"attributes\":{\"employmentStatus\":\"ACTIVE\",\"campus\":\"NORTH\"}},\"resource\":{\"attributes\":{\"dataOwner\":\"CSE\"}}}]}");
+        var ok=new AbacPolicyEngine.Context(true,true,false,"READ","CSE","CSE","INTERNAL",2,1,
+            Set.of("FACULTY"),Set.of(),java.util.Map.of("employmentStatus","ACTIVE","campus","NORTH"),
+            java.util.Map.of("dataOwner","CSE"),false);
+        var denied=new AbacPolicyEngine.Context(true,true,false,"READ","CSE","CSE","INTERNAL",2,1,
+            Set.of("FACULTY"),Set.of(),java.util.Map.of("employmentStatus","SUSPENDED","campus","NORTH"),
+            java.util.Map.of("dataOwner","CSE"),false);
+        assertTrue(engine.evaluate(p,ok).allowed());
+        assertFalse(engine.evaluate(p,denied).allowed());
+    }
 }
