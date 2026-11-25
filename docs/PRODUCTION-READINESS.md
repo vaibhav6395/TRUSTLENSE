@@ -15,10 +15,12 @@ These capabilities are present in the repository; they are not a claim of produc
 - Account enabled/role refresh from PostgreSQL on authenticated requests.
 - Faculty signup approval workflow, production-only first administrator bootstrap, TOTP MFA before session issuance, encrypted MFA secrets, one-time recovery codes and database-backed password login throttling.
 - Administrator account enable/disable controls; disabled accounts are rejected by the session refresh filter on subsequent requests.
-- Role and contextual authorization checks for document access.
-- Per-request grant checks, including expiry and revocation state.
+- Live RBAC/ABAC evaluator using current roles, department, clearance, classification, tags and structured subject/resource attributes.
+- Versioned policy draft/simulation/independent approval/publication, historical decision replay and bounded Policy Impact Verification.
+- Owner/admin document metadata and lifecycle controls, retention expiry and retirement with grant revocation.
+- Per-request scheduled, expiring, revocable grant checks and download quotas.
 - Private server-side file storage with generated storage keys, upload size/type/signature checks and SHA-256 metadata.
-- Persistent access decisions and hash-linked audit event records.
+- Persistent access decisions with evidence snapshots and policy version references, plus hash-linked identity, policy, sharing, document and download audit events.
 - Flyway-managed schema and CI checks for builds, tests, dependency audit, image builds and a revocation smoke test.
 
 ## Phase 1 — Hackathon runnable baseline and production safety boundary
@@ -30,6 +32,7 @@ These capabilities are present in the repository; they are not a claim of produc
 - [x] Run the end-to-end smoke test proving revoked READ and DOWNLOAD grants block a still-authenticated session and reused file URL.
 - [ ] Add a dedicated integration test proving demo users are never seeded under the production profile.
 - [ ] Add end-to-end tests for pending faculty login denial, admin approval, MFA enrollment/recovery and account disablement.
+- [ ] Add browser/database integration tests for policy approval separation, custom attribute matching, download quotas, document retention and historical replay/PIV.
 - [ ] Validate production Compose configuration on the target host and verify the HTTPS reverse proxy, persistent volumes and backup restore.
 
 Latest recorded CI run for the production branch completed successfully across all five jobs: frontend, backend, secret-scan, containers and zero-trust-smoke. This validates the CI pipeline, not an independently operated deployment.
@@ -43,10 +46,11 @@ Latest recorded CI run for the production branch completed successfully across a
 
 ## Phase 3 — Authorization and policy governance
 
-- Specify a versioned policy model, supported attributes, conflict resolution and default-deny semantics.
-- Add policy draft, review, approval, publication, rollback and immutable version history.
-- Test object-level authorization for every read, download, grant and administrative endpoint.
-- Add decision explainability that records the policy version and trusted evidence used for each decision.
+- [x] Specify a constrained versioned JSON policy model, supported RBAC/ABAC attributes, priority conflict resolution and default-deny semantics.
+- [x] Add policy draft, server-side simulation, independent review/approval, publication and immutable version history.
+- [x] Add historical decision replay and bounded Policy Impact Verification.
+- [x] Add decision explainability with policy version and trusted evidence snapshots.
+- [ ] Complete an exhaustive object-level authorization matrix and browser/database integration test suite.
 
 ## Phase 4 — Institutional document protection
 
