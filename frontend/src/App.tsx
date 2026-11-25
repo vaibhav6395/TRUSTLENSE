@@ -10,7 +10,6 @@ import {
 } from './api';
 
 type Page = 'Overview' | 'Documents' | 'People & roles' | 'Policy sandbox' | 'Decisions' | 'Audit history';
-type LoginResult = { authenticated: boolean; username: string; authorities: string[] };
 type AccessResult = { allowed: boolean; outcome: string; reasonCode: string; explanation: string; decisionId: string };
 
 function Badge({ children, tone = 'neutral' }: { children: string; tone?: 'neutral' | 'green' | 'amber' | 'red' }) {
@@ -19,28 +18,102 @@ function Badge({ children, tone = 'neutral' }: { children: string; tone?: 'neutr
 function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: string; detail?: string }) {
   return <div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{detail && <span className="muted">{detail}</span>}</div>;
 }
-function Login({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
-  const [username, setUsername] = useState('demo');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setBusy(true); setError('');
-    try { await onLogin(username, password); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
+type LoginChallenge = { authenticated: false; mfaRequired: boolean; mfaEnrollmentRequired: boolean; username: string; challengeToken: string };
+type LoginResult = { authenticated: true; username: string; authorities: string[] };
+function Login({ onLogin, onAuthenticated }: {
+  onLogin: (username: string, password: string) => Promise<LoginChallenge>;
+  onAuthenticated: (result: LoginResult) => Promise<void>;
+}) {
+  const [mode,setMode] = useState<'signin'|'signup'>('signin');
+  const [stage,setStage] = useState<'password'|'mfa'>('password');
+  const [username,setUsername] = useState('');
+  const [password,setPassword] = useState('');
+  const [email,setEmail] = useState('');
+  const [displayName,setDisplayName] = useState('');
+  const [departmentCode,setDepartmentCode] = useState('CSE');
+  const [facultyIdentifier,setFacultyIdentifier] = useState('');
+  const [challenge,setChallenge] = useState<LoginChallenge|null>(null);
+  const [setup,setSetup] = useState<{secret:string;otpauthUri:string}|null>(null);
+  const [code,setCode] = useState('');
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState('');
+  const [success,setSuccess] = useState('');
+  async function submitLogin(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(''); setSuccess('');
+    try {
+      const result = await onLogin(username,password);
+      setChallenge(result); setStage('mfa');
+      if (result.mfaEnrollmentRequired) {
+        const next = await apiPost<{secret:string;otpauthUri:string}>('/api/v1/auth/mfa/setup', {
+          username: result.username, challengeToken: result.challengeToken,
+        });
+        setSetup(next);
+      }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
     finally { setBusy(false); }
   }
-  return <main className="login-shell"><form className="login-card" onSubmit={submit}>
+  async function submitSignup(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(''); setSuccess('');
+    try {
+      const result = await apiPost<{message:string}>('/api/v1/auth/signup', {
+        username, institutionalEmail: email, password, displayName,
+        departmentCode, facultyIdentifier,
+      });
+      setSuccess(result.message); setMode('signin'); setPassword('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Signup failed'); }
+    finally { setBusy(false); }
+  }
+  async function submitMfa(e: FormEvent) {
+    e.preventDefault(); if (!challenge) return;
+    setBusy(true); setError('');
+    try {
+      const result = await apiPost<LoginResult>('/api/v1/auth/mfa/verify', {
+        username: challenge.username, challengeToken: challenge.challengeToken, code,
+      });
+      await onAuthenticated(result);
+    } catch (err) { setError(err instanceof Error ? err.message : 'MFA verification failed'); }
+    finally { setBusy(false); }
+  }
+  function backToLogin() { setStage('password'); setChallenge(null); setSetup(null); setCode(''); setError(''); }
+  return <main className="login-shell"><div className="login-card">
     <div className="brand-mark login-mark"><ShieldCheck size={25}/></div>
     <span className="eyebrow">CAMPUS SECURITY PLATFORM</span>
     <h1>TRUSTLENS</h1>
-    <p>Sign in to inspect protected document access and security decisions.</p>
-    <label>Username<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required/></label>
-    <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required/></label>
-    {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
-    <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowUpRight size={16}/></button>
-    <div className="login-hint">Use credentials configured by your project administrator for this environment.</div>
-  </form></main>;
+    {stage==='mfa' && challenge ? <>
+      <p>{challenge.mfaEnrollmentRequired ? 'Secure your account by enrolling an authenticator app before continuing.' : 'Enter the current six-digit code from your authenticator app.'}</p>
+      {setup && <div className="notice"><div><strong>Authenticator setup</strong><p>Add TRUSTLENS to an authenticator app using this setup key:</p><code>{setup.secret}</code><p className="footnote">Keep this key private. It will not be shown again after enrollment.</p></div></div>}
+      <form onSubmit={submitMfa}>
+        <label>Six-digit authenticator code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={e=>setCode(e.target.value)} required/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        <button className="primary full" disabled={busy || code.length!==6}>{busy?'Verifying…':'Verify and continue'} <ArrowUpRight size={16}/></button>
+        <button type="button" className="secondary full" onClick={backToLogin}>Back to sign in</button>
+      </form>
+    </> : mode==='signin' ? <>
+      <p>Sign in with your approved campus account. MFA is required before protected access is granted.</p>
+      <form onSubmit={submitLogin}>
+        <label>Username<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
+        <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        {success && <div className="notice">{success}</div>}
+        <button className="primary full" disabled={busy}>{busy?'Checking…':'Continue'} <ArrowUpRight size={16}/></button>
+      </form>
+      <button type="button" className="secondary full" onClick={()=>{setMode('signup');setError('');setSuccess('');}}>Request faculty access</button>
+    </> : <>
+      <p>Submit your institutional details. An administrator must verify and approve your request before you can sign in.</p>
+      <form onSubmit={submitSignup}>
+        <label>Full name<input value={displayName} onChange={e=>setDisplayName(e.target.value)} required maxLength={160}/></label>
+        <label>Username<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required minLength={3} maxLength={80}/></label>
+        <label>Institutional email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required maxLength={254}/></label>
+        <label>Faculty / employee identifier<input value={facultyIdentifier} onChange={e=>setFacultyIdentifier(e.target.value)} required maxLength={80}/></label>
+        <label>Department code<input value={departmentCode} onChange={e=>setDepartmentCode(e.target.value)} required maxLength={40}/></label>
+        <label>Password (12–72 characters)<input type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={12} maxLength={72}/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        <button className="primary full" disabled={busy}>{busy?'Submitting…':'Submit verification request'}</button>
+      </form>
+      <button type="button" className="secondary full" onClick={()=>{setMode('signin');setError('');}}>Back to sign in</button>
+    </>}
+    <div className="login-hint">Administrator approval and MFA are enforced by the backend, not by this interface.</div>
+  </div></main>;
 }
 function Overview({ health, documents, decisions, audit, setPage }: {
   health: Health | null; documents: DocumentItem[]; decisions: DecisionItem[];
@@ -267,8 +340,10 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
-  async function login(username: string,password: string) {
-    const result = await apiPost<LoginResult>('/api/v1/auth/login',{username,password});
+  async function login(username: string,password: string): Promise<LoginChallenge> {
+    return apiPost<LoginChallenge>('/api/v1/auth/login',{username,password});
+  }
+  async function completeLogin(result: LoginResult) {
     setUser({authenticated:result.authenticated,username:result.username,authorities:result.authorities});
     await refreshData();
   }
@@ -289,7 +364,7 @@ export default function App() {
   }
 
   if (loading) return <main className="login-shell"><div className="login-card">Connecting to TRUSTLENS…</div></main>;
-  if (!user) return <Login onLogin={login}/>;
+  if (!user) return <Login onLogin={login} onAuthenticated={completeLogin}/>;
 
   return <main className="shell">
     <aside className="sidebar">
