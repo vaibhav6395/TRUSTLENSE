@@ -11,7 +11,8 @@ public class AbacPolicyEngine {
         boolean accountEnabled, boolean documentActive, boolean owner,
         String action, String actorDepartment, String documentDepartment,
         String classification, int actorClearance, int requiredClearance,
-        Set<String> roles, Set<String> documentTags, boolean activeGrant
+        Set<String> roles, Set<String> documentTags, java.util.Map<String,String> subjectAttributes,
+        java.util.Map<String,String> resourceAttributes, boolean activeGrant
     ) {}
     public record Decision(boolean allowed, String reasonCode, String explanation) {}
 
@@ -51,6 +52,7 @@ public class AbacPolicyEngine {
         if (s.path("sameDepartment").asBoolean(false) &&
             (c.actorDepartment()==null || !c.actorDepartment().equals(c.documentDepartment()))) return false;
         if (s.has("clearanceMin") && c.actorClearance() < s.path("clearanceMin").asInt(0)) return false;
+        if(!matchesAttributes(s.path("attributes"),c.subjectAttributes())) return false;
         if (resource.has("classifications") && resource.path("classifications").isArray() &&
             resource.path("classifications").size()>0 && !contains(resource.path("classifications"),c.classification())) return false;
         if (resource.has("departments") && resource.path("departments").isArray() &&
@@ -59,6 +61,7 @@ public class AbacPolicyEngine {
             (c.actorDepartment()==null || !c.actorDepartment().equals(c.documentDepartment()))) return false;
         if (resource.has("tagsAny") && resource.path("tagsAny").isArray() &&
             resource.path("tagsAny").size()>0 && !intersects(resource.path("tagsAny"),c.documentTags())) return false;
+        if(!matchesAttributes(resource.path("attributes"),c.resourceAttributes())) return false;
         if (conditions.path("owner").isBoolean() && conditions.path("owner").asBoolean()!=c.owner()) return false;
         if (conditions.path("grantRequired").asBoolean(false) && !c.activeGrant()) return false;
         String grantPermission = conditions.path("grantPermission").asText("");
@@ -66,6 +69,16 @@ public class AbacPolicyEngine {
         return true;
     }
 
+    private boolean matchesAttributes(JsonNode required,java.util.Map<String,String> actual) {
+        if(required==null||required.isMissingNode()||required.isNull()) return true;
+        if(!required.isObject()) return false;
+        var fields=required.fields();
+        while(fields.hasNext()){
+            var field=fields.next();
+            if(!actual.containsKey(field.getKey())||!actual.get(field.getKey()).equals(field.getValue().asText())) return false;
+        }
+        return true;
+    }
     private boolean contains(JsonNode array, String value) {
         if (value==null || !array.isArray()) return false;
         for(JsonNode n:array) if(n.asText().equalsIgnoreCase(value)) return true;
