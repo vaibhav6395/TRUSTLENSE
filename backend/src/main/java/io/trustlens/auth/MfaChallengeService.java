@@ -26,6 +26,7 @@ public class MfaChallengeService {
     public record Challenge(String token, String purpose) {}
     public record Setup(String secret, String otpauthUri) {}
 
+    @Transactional
     public Challenge create(String username, String purpose) {
         UUID userId = jdbc.queryForObject("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",
             UUID.class, username);
