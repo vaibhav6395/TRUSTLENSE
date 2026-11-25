@@ -108,6 +108,10 @@ public class AccountAdminController {
     public Map<String,Object> removeRole(@PathVariable String username,@PathVariable String roleCode,Authentication actor) {
         target(username);
         String role=roleCode.toUpperCase();
+        boolean superAdmin=actor.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_SECURITY_ADMIN"));
+        boolean privileged=Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM role_authorities ra JOIN app_roles r ON r.id=ra.role_id WHERE r.code=?)",Boolean.class,role));
+        if((role.equals("SECURITY_ADMIN")||privileged)&&!superAdmin)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Only a SECURITY_ADMIN can remove administrator roles or authority-bearing roles");
         if("SECURITY_ADMIN".equals(role)&&isLastAdmin(username))
             throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot remove the last active SECURITY_ADMIN role");
         int changed=jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM app_users WHERE username=?) AND role_id=(SELECT id FROM app_roles WHERE code=?)",username,role);
