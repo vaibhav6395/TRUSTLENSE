@@ -1,4 +1,4 @@
-# TRUSTLENS
+# TRUSTLENSE
 
 **Explainable, continuously enforced access governance for campus document exchange.**
 
@@ -51,6 +51,22 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - Institutional email/faculty-ID verification is a manual administrator process; no campus directory or SSO connector is configured.
 - Monitoring, backup/restore drills and independent security review remain required.
 
+## End-to-end application flow
+
+The recommended demonstration follows this order:
+
+1. **Bootstrap identity:** start the backend with the local demo profile, or create the first production administrator through the backend-only bootstrap configuration.
+2. **Faculty onboarding:** submit a faculty signup request. It remains PENDING and cannot log in until a SECURITY_ADMIN reviews and approves it.
+3. **MFA sign-in:** sign in with username/password, complete TOTP enrollment or verification, and receive the authenticated session only after MFA succeeds.
+4. **Document publishing:** upload a synthetic document, set its classification, tags, required clearance and optional retention expiry. The document remains private to server-side storage.
+5. **Controlled sharing:** the owner grants READ or DOWNLOAD access to an eligible recipient; the grant may have a start time, expiry and download cap.
+6. **Request-time enforcement:** every metadata read and content download is authorized against current account, role, attributes, document state, active policy and grant state.
+7. **Revoke and verify:** revoke a grant, then retry the document API and content endpoint with the same authenticated session. The subsequent request must be denied.
+8. **Govern policy:** simulate a JSON policy, save and submit a draft, obtain review from a different SECURITY_ADMIN, and publish the immutable version.
+9. **Investigate:** inspect decisions and audit events, replay a recorded decision against its original policy/evidence, and run bounded Policy Impact Verification.
+
+For the detailed walkthrough, roles and API sequence, see [docs/USER-WORKFLOWS.md](docs/USER-WORKFLOWS.md). For enforcement details, see [docs/ACCESS-CONTROL-AND-SHARING.md](docs/ACCESS-CONTROL-AND-SHARING.md).
+
 ## Repository layout
 
 - `backend/` — Java 21, Spring Boot, Spring Security, PostgreSQL
@@ -62,7 +78,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 
 ## Fetching and switching branches
 
-The repository uses separate branches for the stable baseline and ongoing work. Fetch the branch you need explicitly so you do not accidentally work on the wrong version.
+The current hackathon implementation is developed on feature/complete-zero-trust-policy-workflow and reviewed through [PR #6](https://github.com/vaibhav6395/TRUSTLENSE/pull/6) into main. The PR is not merged; main remains unchanged. Fetch the feature branch explicitly to run the complete current implementation.
 
 ### Clone a specific branch
 
@@ -73,10 +89,10 @@ git clone --single-branch --branch main https://github.com/vaibhav6395/TRUSTLENS
 cd TRUSTLENSE
 ```
 
-Or clone the production hardening work branch:
+Clone the current hackathon implementation branch:
 
 ```bash
-git clone --single-branch --branch production/phase-1-safety-baseline https://github.com/vaibhav6395/TRUSTLENSE.git
+git clone --single-branch --branch feature/complete-zero-trust-policy-workflow https://github.com/vaibhav6395/TRUSTLENSE.git
 cd TRUSTLENSE
 ```
 
@@ -97,16 +113,16 @@ git switch main
 git pull --ff-only origin main
 ```
 
-Switch to the production hardening branch:
+Switch to the current hackathon implementation branch:
 
 ```bash
-git switch --track origin/production/phase-1-safety-baseline
+git switch --track origin/feature/complete-zero-trust-policy-workflow
 ```
 
-If you already created a local branch with that name, use:
+If the local branch already exists:
 
 ```bash
-git switch production/phase-1-safety-baseline
+git switch feature/complete-zero-trust-policy-workflow
 git pull --ff-only
 ```
 
@@ -281,7 +297,7 @@ Demo seeding is disabled by default. Use only a disposable local database and sy
 
 ## Identity and MFA setup
 
-See [docs/IDENTITY-AND-MFA.md](docs/IDENTITY-AND-MFA.md) for the faculty approval flow, first-admin bootstrap, MFA enrollment/login sequence, recovery codes and account disablement behavior.
+See [docs/IDENTITY-AND-MFA.md](docs/IDENTITY-AND-MFA.md) for the faculty approval flow, first-admin bootstrap, MFA enrollment/login sequence, recovery codes and account disablement behavior. The complete operator and user walkthrough is in [docs/USER-WORKFLOWS.md](docs/USER-WORKFLOWS.md).
 
 ## API highlights
 
@@ -310,7 +326,7 @@ cd backend && mvn test
 cd ../frontend && npm install && npm test && npm run build && npm audit --audit-level=high
 ```
 
-A successful build does not establish production security. Review [docs/threat-model.md](docs/threat-model.md) and [security-tests/README.md](security-tests/README.md).
+The latest CI run for commit f8d307bd6cf8642f95dcc52070e61db3e8210db7 passed all five jobs: backend tests, frontend build/tests/dependency audit, secret scan, container builds and the grant-revocation smoke test. See [CI run #112](https://github.com/vaibhav6395/TRUSTLENSE/actions/runs/45537059083). This is CI evidence for the feature branch, not production certification or proof that every end-to-end workflow is covered. A successful build does not establish production security. Review [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md), [docs/threat-model.md](docs/threat-model.md) and [security-tests/README.md](security-tests/README.md).
 
 ## License
 
