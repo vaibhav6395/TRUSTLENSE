@@ -124,6 +124,7 @@ public class PolicyLifecycleService {
                 s.path("action").asText("READ"),s.path("actorDepartment").asText(""),
                 s.path("documentDepartment").asText(""),s.path("classification").asText("INTERNAL"),
                 s.path("actorClearance").asInt(0),s.path("requiredClearance").asInt(0),roles,tags,
+                attributes(s.path("subjectAttributes")),attributes(s.path("resourceAttributes")),
                 s.path("activeGrant").asBoolean(false));
             var result=engine.evaluate(rules,context);
             results.add(Map.of("id",s.path("id").asText("scenario"),"allowed",result.allowed(),
@@ -156,6 +157,7 @@ public class PolicyLifecycleService {
                     (String)row.get("action"),e.path("actorDepartment").asText(""),
                     e.path("documentDepartment").asText(""),e.path("classification").asText("INTERNAL"),
                     e.path("actorClearance").asInt(),e.path("requiredClearance").asInt(),roles,tags,
+                    attributes(e.path("subjectAttributes")),attributes(e.path("resourceAttributes")),
                     e.path("activeGrant").asBoolean());
                 var next=engine.evaluate(proposed,ctx);
                 boolean previous="ALLOW".equals(row.get("outcome"));
@@ -173,6 +175,14 @@ public class PolicyLifecycleService {
         if(versionId==null)return baseline();
         String raw=jdbc.queryForObject("SELECT rules::text FROM policy_versions WHERE id=?",String.class,versionId);
         try{return mapper.readTree(raw);}catch(Exception ex){throw new IllegalStateException(ex);}
+    }
+
+    private java.util.Map<String,String> attributes(JsonNode node) {
+        java.util.Map<String,String> result=new java.util.HashMap<>();
+        if(node!=null&&node.isObject())node.fields().forEachRemaining(entry->{
+            if(entry.getValue().isValueNode()&&!entry.getValue().isNull())result.put(entry.getKey(),entry.getValue().asText());
+        });
+        return result;
     }
 
     private void validate(JsonNode rules) {
