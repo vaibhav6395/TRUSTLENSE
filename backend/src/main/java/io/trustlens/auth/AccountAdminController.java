@@ -26,7 +26,7 @@ public class AccountAdminController {
         return jdbc.queryForList("""
             SELECT u.id,u.username,u.display_name AS "displayName",
                    u.department_code AS "departmentCode",u.enabled,
-                   u.mfa_enabled AS "mfaEnabled",u.clearance_level AS "clearanceLevel",u.institutional_email AS "institutionalEmail",
+                   u.mfa_enabled AS "mfaEnabled",u.clearance_level AS "clearanceLevel",u.institutional_email AS "institutionalEmail",u.attributes::text AS attributes,
                    COALESCE((SELECT string_agg(r.code, ',') FROM user_roles ur
                      JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=u.id),'') AS roles
             FROM app_users u ORDER BY u.created_at DESC
