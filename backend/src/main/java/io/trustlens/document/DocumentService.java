@@ -47,7 +47,7 @@ public class DocumentService {
         java.util.List<Map<String,Object>> visible=new java.util.ArrayList<>();
         for(Map<String,Object> doc:jdbc.queryForList("""
             SELECT d.id,d.title,d.department_code AS department,d.classification,d.status,d.created_at,
-                   d.description,d.tags,d.required_clearance,d.retention_until,u.display_name AS owner,u.username AS ownerUsername
+                   d.description,d.tags,d.required_clearance,d.retention_until,u.display_name AS owner,u.username AS "ownerUsername"
             FROM documents d JOIN app_users u ON u.id=d.owner_id
             WHERE d.status='ACTIVE' ORDER BY d.created_at DESC
             """)) {
