@@ -17,12 +17,37 @@ csrf_token() {
   curl --fail --silent --show-error -b "$jar" -c "$jar" "$BASE_URL/api/v1/auth/csrf" | jq -r '.token'
 }
 
+totp_code() {
+  python3 - "$1" <<'PY'
+import base64, hashlib, hmac, struct, sys, time
+secret = base64.b32decode(sys.argv[1] + "=" * ((8 - len(sys.argv[1]) % 8) % 8))
+counter = int(time.time()) // 30
+digest = hmac.new(secret, struct.pack(">Q", counter), hashlib.sha1).digest()
+offset = digest[-1] & 0x0f
+binary = struct.unpack(">I", digest[offset:offset+4])[0] & 0x7fffffff
+print(f"{binary % 1000000:06d}")
+PY
+}
+
 login() {
   local jar="$1" username="$2" password="$3" token="$4"
-  curl --fail --silent --show-error -b "$jar" -c "$jar" \
+  local challenge challenge_token setup secret code
+  challenge="$(curl --fail --silent --show-error -b "$jar" -c "$jar" \
     -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $token" \
     -d "$(jq -n --arg u "$username" --arg p "$password" '{username:$u,password:$p}')" \
-    "$BASE_URL/api/v1/auth/login" | jq -e '.authenticated == true' >/dev/null
+    "$BASE_URL/api/v1/auth/login")"
+  jq -e '.authenticated == false and .challengeToken != null' <<<"$challenge" >/dev/null
+  challenge_token="$(jq -r '.challengeToken' <<<"$challenge")"
+  setup="$(curl --fail --silent --show-error -b "$jar" -c "$jar" \
+    -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $token" \
+    -d "$(jq -n --arg u "$username" --arg t "$challenge_token" '{username:$u,challengeToken:$t}')" \
+    "$BASE_URL/api/v1/auth/mfa/setup")"
+  secret="$(jq -r '.secret' <<<"$setup")"
+  code="$(totp_code "$secret")"
+  curl --fail --silent --show-error -b "$jar" -c "$jar" \
+    -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $token" \
+    -d "$(jq -n --arg u "$username" --arg t "$challenge_token" --arg c "$code" '{username:$u,challengeToken:$t,code:$c}')" \
+    "$BASE_URL/api/v1/auth/mfa/verify" | jq -e '.authenticated == true and (.recoveryCodes | length == 10)' >/dev/null
 }
 
 ADMIN_CSRF="$(csrf_token "$ADMIN_JAR")"

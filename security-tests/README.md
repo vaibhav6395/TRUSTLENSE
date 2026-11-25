@@ -11,7 +11,17 @@ Run backend and frontend checks from the repository root:
 (cd frontend && npm install && npm test && npm run build)
 ~~~
 
-The backend suite covers the deterministic policy core and private file-storage validation. CI also builds both container images and runs the frontend dependency audit.
+The backend suite covers the deterministic policy core and private file-storage validation. CI also builds both container images, runs the frontend dependency audit and executes the revocation smoke test. The smoke test enrolls TOTP for both demo accounts before exercising grant revocation.
+
+## Identity and MFA checks
+
+- Faculty signup creates a PENDING request only; password login must fail until an administrator approves it.
+- A non-administrator must receive HTTP 403 from the faculty review and account-management endpoints.
+- Password verification returns an MFA challenge, not an authenticated session. Protected document APIs must remain unavailable before MFA verification.
+- First-time MFA enrollment stores an AES-GCM encrypted secret, returns ten recovery codes once, and creates a session only after a valid TOTP code.
+- A recovery code can be used once; replaying it must fail. Each MFA challenge permits at most five verification attempts.
+- Five password failures for the same username/address are throttled for 15 minutes.
+- Disabling an account blocks its existing session on its next protected request; the last active SECURITY_ADMIN and the current administrator cannot be disabled.
 
 ## Required end-to-end adversarial demonstration
 

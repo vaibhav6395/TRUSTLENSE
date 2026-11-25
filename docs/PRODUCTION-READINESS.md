@@ -13,6 +13,8 @@ These capabilities are present in the repository; they are not a claim of produc
 
 - Session-based authentication with BCrypt password verification, CSRF protection and session ID rotation on login.
 - Account enabled/role refresh from PostgreSQL on authenticated requests.
+- Faculty signup approval workflow, production-only first administrator bootstrap, TOTP MFA before session issuance, encrypted MFA secrets, one-time recovery codes and database-backed password login throttling.
+- Administrator account enable/disable controls; disabled accounts are rejected by the session refresh filter on subsequent requests.
 - Role and contextual authorization checks for document access.
 - Per-request grant checks, including expiry and revocation state.
 - Private server-side file storage with generated storage keys, upload size/type/signature checks and SHA-256 metadata.
@@ -27,6 +29,7 @@ These capabilities are present in the repository; they are not a claim of produc
 - [x] Run backend tests, frontend tests/build, dependency audit, secret scan and both container image builds in GitHub Actions.
 - [x] Run the end-to-end smoke test proving revoked READ and DOWNLOAD grants block a still-authenticated session and reused file URL.
 - [ ] Add a dedicated integration test proving demo users are never seeded under the production profile.
+- [ ] Add end-to-end tests for pending faculty login denial, admin approval, MFA enrollment/recovery and account disablement.
 - [ ] Validate production Compose configuration on the target host and verify the HTTPS reverse proxy, persistent volumes and backup restore.
 
 Latest recorded CI run for the production branch completed successfully across all five jobs: frontend, backend, secret-scan, containers and zero-trust-smoke. This validates the CI pipeline, not an independently operated deployment.

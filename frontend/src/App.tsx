@@ -10,7 +10,6 @@ import {
 } from './api';
 
 type Page = 'Overview' | 'Documents' | 'People & roles' | 'Policy sandbox' | 'Decisions' | 'Audit history';
-type LoginResult = { authenticated: boolean; username: string; authorities: string[] };
 type AccessResult = { allowed: boolean; outcome: string; reasonCode: string; explanation: string; decisionId: string };
 
 function Badge({ children, tone = 'neutral' }: { children: string; tone?: 'neutral' | 'green' | 'amber' | 'red' }) {
@@ -19,28 +18,102 @@ function Badge({ children, tone = 'neutral' }: { children: string; tone?: 'neutr
 function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: string; detail?: string }) {
   return <div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{detail && <span className="muted">{detail}</span>}</div>;
 }
-function Login({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
-  const [username, setUsername] = useState('demo');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setBusy(true); setError('');
-    try { await onLogin(username, password); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
+type LoginChallenge = { authenticated: false; mfaRequired: boolean; mfaEnrollmentRequired: boolean; username: string; challengeToken: string };
+type LoginResult = { authenticated: true; username: string; authorities: string[]; recoveryCodes?: string[] };
+function Login({ onLogin, onAuthenticated }: {
+  onLogin: (username: string, password: string) => Promise<LoginChallenge>;
+  onAuthenticated: (result: LoginResult) => Promise<void>;
+}) {
+  const [mode,setMode] = useState<'signin'|'signup'>('signin');
+  const [stage,setStage] = useState<'password'|'mfa'>('password');
+  const [username,setUsername] = useState('');
+  const [password,setPassword] = useState('');
+  const [email,setEmail] = useState('');
+  const [displayName,setDisplayName] = useState('');
+  const [departmentCode,setDepartmentCode] = useState('CSE');
+  const [facultyIdentifier,setFacultyIdentifier] = useState('');
+  const [challenge,setChallenge] = useState<LoginChallenge|null>(null);
+  const [setup,setSetup] = useState<{secret:string;otpauthUri:string}|null>(null);
+  const [code,setCode] = useState('');
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState('');
+  const [success,setSuccess] = useState('');
+  async function submitLogin(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(''); setSuccess('');
+    try {
+      const result = await onLogin(username,password);
+      setChallenge(result); setStage('mfa');
+      if (result.mfaEnrollmentRequired) {
+        const next = await apiPost<{secret:string;otpauthUri:string}>('/api/v1/auth/mfa/setup', {
+          username: result.username, challengeToken: result.challengeToken,
+        });
+        setSetup(next);
+      }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
     finally { setBusy(false); }
   }
-  return <main className="login-shell"><form className="login-card" onSubmit={submit}>
+  async function submitSignup(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(''); setSuccess('');
+    try {
+      const result = await apiPost<{message:string}>('/api/v1/auth/signup', {
+        username, institutionalEmail: email, password, displayName,
+        departmentCode, facultyIdentifier,
+      });
+      setSuccess(result.message); setMode('signin'); setPassword('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Signup failed'); }
+    finally { setBusy(false); }
+  }
+  async function submitMfa(e: FormEvent) {
+    e.preventDefault(); if (!challenge) return;
+    setBusy(true); setError('');
+    try {
+      const result = await apiPost<LoginResult>('/api/v1/auth/mfa/verify', {
+        username: challenge.username, challengeToken: challenge.challengeToken, code,
+      });
+      await onAuthenticated(result);
+    } catch (err) { setError(err instanceof Error ? err.message : 'MFA verification failed'); }
+    finally { setBusy(false); }
+  }
+  function backToLogin() { setStage('password'); setChallenge(null); setSetup(null); setCode(''); setError(''); }
+  return <main className="login-shell"><div className="login-card">
     <div className="brand-mark login-mark"><ShieldCheck size={25}/></div>
     <span className="eyebrow">CAMPUS SECURITY PLATFORM</span>
     <h1>TRUSTLENS</h1>
-    <p>Sign in to inspect protected document access and security decisions.</p>
-    <label>Username<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required/></label>
-    <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required/></label>
-    {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
-    <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowUpRight size={16}/></button>
-    <div className="login-hint">Use credentials configured by your project administrator for this environment.</div>
-  </form></main>;
+    {stage==='mfa' && challenge ? <>
+      <p>{challenge.mfaEnrollmentRequired ? 'Secure your account by enrolling an authenticator app before continuing.' : 'Enter the current six-digit code from your authenticator app.'}</p>
+      {setup && <div className="notice"><div><strong>Authenticator setup</strong><p>Add TRUSTLENS to an authenticator app using this setup key:</p><code>{setup.secret}</code><p className="footnote">Keep this key private. It will not be shown again after enrollment.</p></div></div>}
+      <form onSubmit={submitMfa}>
+        <label>Authenticator code or 16-character recovery code<input inputMode="text" autoComplete="one-time-code" maxLength={16} value={code} onChange={e=>setCode(e.target.value.toUpperCase())} required/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        <button className="primary full" disabled={busy || (code.length!==6 && code.length!==16)}>{busy?'Verifying…':'Verify and continue'} <ArrowUpRight size={16}/></button>
+        <button type="button" className="secondary full" onClick={backToLogin}>Back to sign in</button>
+      </form>
+    </> : mode==='signin' ? <>
+      <p>Sign in with your approved campus account. MFA is required before protected access is granted.</p>
+      <form onSubmit={submitLogin}>
+        <label>Username<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
+        <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        {success && <div className="notice">{success}</div>}
+        <button className="primary full" disabled={busy}>{busy?'Checking…':'Continue'} <ArrowUpRight size={16}/></button>
+      </form>
+      <button type="button" className="secondary full" onClick={()=>{setMode('signup');setError('');setSuccess('');}}>Request faculty access</button>
+    </> : <>
+      <p>Submit your institutional details. An administrator must verify and approve your request before you can sign in.</p>
+      <form onSubmit={submitSignup}>
+        <label>Full name<input value={displayName} onChange={e=>setDisplayName(e.target.value)} required maxLength={160}/></label>
+        <label>Username<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required minLength={3} maxLength={80}/></label>
+        <label>Institutional email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required maxLength={254}/></label>
+        <label>Faculty / employee identifier<input value={facultyIdentifier} onChange={e=>setFacultyIdentifier(e.target.value)} required maxLength={80}/></label>
+        <label>Department code<input value={departmentCode} onChange={e=>setDepartmentCode(e.target.value)} required maxLength={40}/></label>
+        <label>Password (12–72 characters)<input type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={12} maxLength={72}/></label>
+        {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
+        <button className="primary full" disabled={busy}>{busy?'Submitting…':'Submit verification request'}</button>
+      </form>
+      <button type="button" className="secondary full" onClick={()=>{setMode('signin');setError('');}}>Back to sign in</button>
+    </>}
+    <div className="login-hint">Administrator approval and MFA are enforced by the backend, not by this interface.</div>
+  </div></main>;
 }
 function Overview({ health, documents, decisions, audit, setPage }: {
   health: Health | null; documents: DocumentItem[]; decisions: DecisionItem[];
@@ -190,6 +263,66 @@ function AuditHistory({ audit }: { audit: AuditItem[] }) {
     {audit.length===0 && <div className="empty">No audit events recorded yet.</div>}
   </>;
 }
+type FacultySignupRequest = {
+  id: string; username: string; institutionalEmail: string; displayName: string;
+  departmentCode: string; facultyIdentifier: string; status: string; reviewNote: string|null; createdAt: string;
+};
+function FacultyRequests() {
+  const [requests,setRequests] = useState<FacultySignupRequest[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  async function load() {
+    try { setRequests(await apiGet<FacultySignupRequest[]>('/api/v1/admin/signup-requests')); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load faculty requests'); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function review(id: string, action: 'approve'|'reject') {
+    setBusy(id); setError('');
+    try {
+      await apiPost(`/api/v1/admin/signup-requests/${id}/${action}`, {note: action==='approve'?'Institutional details verified':'Request rejected after review'});
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Review action failed'); }
+    finally { setBusy(''); }
+  }
+  return <section className="panel">
+    <div className="panel-heading"><div><span className="eyebrow">IDENTITY VERIFICATION</span><h3>Faculty signup requests</h3></div><Users size={19}/></div>
+    <p className="muted">Review institutional identity details before an account is created. Approved faculty must enroll MFA at first sign-in.</p>
+    {error && <div className="connection-notice">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>APPLICANT</th><th>INSTITUTIONAL DETAILS</th><th>STATUS</th><th>REVIEW</th></tr></thead><tbody>
+      {requests.map(r=><tr key={r.id}><td><strong>{r.displayName}</strong><small>{r.username}</small></td><td>{r.institutionalEmail}<small>{r.departmentCode} · ID {r.facultyIdentifier}</small></td><td><Badge tone={r.status==='APPROVED'?'green':r.status==='REJECTED'?'red':'amber'}>{r.status}</Badge></td><td>{r.status==='PENDING' ? <div className="toolbar"><button className="primary" disabled={busy===r.id} onClick={()=>void review(r.id,'approve')}>Approve</button><button className="secondary" disabled={busy===r.id} onClick={()=>void review(r.id,'reject')}>Reject</button></div> : (r.reviewNote ?? 'Reviewed')}</td></tr>)}
+    </tbody></table>{requests.length===0 && <div className="empty">No faculty signup requests.</div>}</div>
+  </section>;
+}
+type ManagedUser = {
+  id: string; username: string; displayName: string; departmentCode: string;
+  enabled: boolean; mfaEnabled: boolean; roles: string;
+};
+function AdminUsers() {
+  const [users,setUsers] = useState<ManagedUser[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  async function load() {
+    try { setUsers(await apiGet<ManagedUser[]>('/api/v1/admin/users')); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load accounts'); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function toggle(user: ManagedUser) {
+    setBusy(user.username); setError('');
+    try {
+      await apiPost(`/api/v1/admin/users/${encodeURIComponent(user.username)}/${user.enabled?'disable':'enable'}`);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Account update failed'); }
+    finally { setBusy(''); }
+  }
+  return <section className="panel">
+    <div className="panel-heading"><div><span className="eyebrow">ACCOUNT LIFECYCLE</span><h3>Campus accounts</h3></div><Users size={19}/></div>
+    <p className="muted">Disablement takes effect on the next protected request. The backend prevents disabling the last active security administrator.</p>
+    {error && <div className="connection-notice">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>ACCOUNT</th><th>ROLE / DEPARTMENT</th><th>MFA</th><th>STATUS</th><th/></tr></thead><tbody>
+      {users.map(u=><tr key={u.id}><td><strong>{u.displayName}</strong><small>{u.username}</small></td><td>{u.roles || 'No role'}<small>{u.departmentCode}</small></td><td><Badge tone={u.mfaEnabled?'green':'amber'}>{u.mfaEnabled?'ENROLLED':'PENDING'}</Badge></td><td><Badge tone={u.enabled?'green':'red'}>{u.enabled?'ACTIVE':'DISABLED'}</Badge></td><td><button className="secondary" disabled={busy===u.username} onClick={()=>void toggle(u)}>{busy===u.username?'Saving…':u.enabled?'Disable':'Enable'}</button></td></tr>)}
+    </tbody></table>{users.length===0 && <div className="empty">No accounts found.</div>}</div>
+  </section>;
+}
 function People({ user, documents, onChanged }: { user: CurrentUser; documents: DocumentItem[]; onChanged: () => Promise<void> }) {
   const [grants,setGrants] = useState<GrantItem[]>([]);
   const [error,setError] = useState('');
@@ -224,7 +357,7 @@ function People({ user, documents, onChanged }: { user: CurrentUser; documents: 
   return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
     {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
     {error && <div className="connection-notice">{error}</div>}
-    {isAdmin && <><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
+    {isAdmin && <><FacultyRequests/><AdminUsers/><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
       <form className="toolbar" onSubmit={createGrant}>
         <select aria-label="Document" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
           <option value="">Select document</option>{documents.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
@@ -250,6 +383,7 @@ export default function App() {
   const [audit,setAudit] = useState<AuditItem[]>([]);
   const [busyId,setBusyId] = useState('');
   const [message,setMessage] = useState('');
+  const [recoveryCodes,setRecoveryCodes] = useState<string[]>([]);
   const [loading,setLoading] = useState(true);
 
   async function refreshData() {
@@ -267,9 +401,12 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
-  async function login(username: string,password: string) {
-    const result = await apiPost<LoginResult>('/api/v1/auth/login',{username,password});
+  async function login(username: string,password: string): Promise<LoginChallenge> {
+    return apiPost<LoginChallenge>('/api/v1/auth/login',{username,password});
+  }
+  async function completeLogin(result: LoginResult) {
     setUser({authenticated:result.authenticated,username:result.username,authorities:result.authorities});
+    setRecoveryCodes(result.recoveryCodes ?? []);
     await refreshData();
   }
   async function logout() {
@@ -289,7 +426,7 @@ export default function App() {
   }
 
   if (loading) return <main className="login-shell"><div className="login-card">Connecting to TRUSTLENS…</div></main>;
-  if (!user) return <Login onLogin={login}/>;
+  if (!user) return <Login onLogin={login} onAuthenticated={completeLogin}/>;
 
   return <main className="shell">
     <aside className="sidebar">
@@ -300,6 +437,12 @@ export default function App() {
     </aside>
     <section className="content">
       <header className="topbar"><div><span className="eyebrow">CAMPUS SECURITY PLATFORM</span><h1>{page}</h1></div><div className="topbar-right"><div className="status-pill"><span className={health?.status==='UP'?'dot online':'dot'}/>{health?.status==='UP'?'API connected':'API offline'}</div><div className="user-chip"><div className="avatar">{user.username.slice(0,2).toUpperCase()}</div><span>{user.username}</span></div><button className="icon-button" title="Refresh data" onClick={() => refreshData().catch(e=>setMessage(e.message))}><RefreshCw size={15}/></button><button className="icon-button" title="Sign out" onClick={() => logout().catch(e=>setMessage(e.message))}><LogOut size={15}/></button></div></header>
+      {recoveryCodes.length>0 && <section className="panel explanation">
+        <div className="panel-heading"><div><span className="eyebrow">SAVE THESE NOW</span><h3>MFA recovery codes</h3></div><ShieldCheck size={19}/></div>
+        <p>These ten codes are shown once. Store them somewhere private. Each code can replace one authenticator code for a single sign-in.</p>
+        <div className="metrics">{recoveryCodes.map(code=><code className="metric" key={code}>{code}</code>)}</div>
+        <button className="primary" onClick={()=>setRecoveryCodes([])}>I have saved my recovery codes</button>
+      </section>}
       {message && <div className="connection-notice"><Check size={15}/>{message}</div>}
       {page==='Overview' && <Overview health={health} documents={documents} decisions={decisions} audit={audit} setPage={setPage}/>}
       {page==='Documents' && <Documents documents={documents} onRead={readDocument} busyId={busyId}

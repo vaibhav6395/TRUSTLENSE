@@ -41,7 +41,9 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/health", "/api/v1/auth/csrf", "/api/v1/auth/login",
+                                 "/api/v1/auth/signup", "/api/v1/auth/mfa/setup", "/api/v1/auth/mfa/verify",
                                  "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers("/api/v1/admin/**").hasRole("SECURITY_ADMIN")
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(new SessionAccountRefreshFilter(users), AnonymousAuthenticationFilter.class)
