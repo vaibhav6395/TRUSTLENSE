@@ -39,25 +39,40 @@ public class DocumentService {
     }
 
     public java.util.List<Map<String, Object>> listVisible(String username) {
-        return jdbc.queryForList("""
-            SELECT DISTINCT d.id, d.title, d.department_code AS department,
-                   d.classification, d.status, d.created_at,
-                   u.display_name AS owner
-            FROM documents d
-            JOIN app_users u ON u.id=d.owner_id
-            JOIN app_users actor ON actor.username=?
-            WHERE actor.enabled=TRUE AND d.status='ACTIVE'
-              AND (d.owner_id=actor.id
-                   OR (d.classification='PUBLIC')
-                   OR EXISTS (SELECT 1 FROM access_grants g
-                     WHERE g.document_id=d.id AND g.subject_user_id=actor.id
-                       AND g.permission IN ('READ','DOWNLOAD')
-                       AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > now()))
-                   OR (actor.department_code=d.department_code AND EXISTS (
-                     SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
-                     WHERE ur.user_id=actor.id AND r.code='SECURITY_ADMIN')))
-            ORDER BY d.created_at DESC
-            """, username);
+        Map<String,Object> actor=jdbc.queryForMap("SELECT id,department_code,enabled,clearance_level FROM app_users WHERE username=?",username);
+        UUID actorId=(UUID)actor.get("id");
+        java.util.Set<String> roles=new java.util.HashSet<>(jdbc.queryForList(
+            "SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?",String.class,actorId));
+        var policy=policies.activeRules();
+        java.util.List<Map<String,Object>> visible=new java.util.ArrayList<>();
+        for(Map<String,Object> doc:jdbc.queryForList("""
+            SELECT d.id,d.title,d.department_code AS department,d.classification,d.status,d.created_at,
+                   d.description,d.tags,d.required_clearance,d.retention_until,u.display_name AS owner
+            FROM documents d JOIN app_users u ON u.id=d.owner_id
+            WHERE d.status='ACTIVE' ORDER BY d.created_at DESC
+            """)) {
+            UUID id=(UUID)doc.get("id");
+            boolean grant=Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
+                 AND permission='READ' AND starts_at<=now() AND revoked_at IS NULL
+                 AND (expires_at IS NULL OR expires_at>now()))
+                """,Boolean.class,id,actorId));
+            java.util.Set<String> tags=new java.util.HashSet<>();
+            Object raw=doc.get("tags");
+            if(raw instanceof String[] arr) java.util.Collections.addAll(tags,arr);
+            int clearance=((Number)actor.get("clearance_level")).intValue();
+            int required=((Number)doc.get("required_clearance")).intValue();
+            Object retention=doc.get("retention_until");
+            boolean active= "ACTIVE".equals(doc.get("status")) &&
+                (retention==null || ((java.sql.Timestamp)retention).toInstant().isAfter(java.time.Instant.now()));
+            var decision=policyEngine.evaluate(policy,new AbacPolicyEngine.Context(
+                Boolean.TRUE.equals(actor.get("enabled")),active,actorId.equals(
+                    jdbc.queryForObject("SELECT owner_id FROM documents WHERE id=?",UUID.class,id)),
+                "READ",(String)actor.get("department_code"),(String)doc.get("department"),
+                (String)doc.get("classification"),clearance,required,roles,tags,grant));
+            if(decision.allowed()) visible.add(doc);
+        }
+        return visible;
     }
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
