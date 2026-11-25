@@ -3,6 +3,7 @@ package io.trustlens.auth;
 import io.trustlens.audit.IdentityAuditService;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
