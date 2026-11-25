@@ -177,6 +177,7 @@ public class DocumentService {
                       "requiredClearance",requiredClearance,"sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
     }
 
+    @Transactional
     public Map<String,Object> updateMetadata(UUID documentId,String username,DocumentMetadataRequest request) {
         UUID actorId=userId(username);
         requireDocumentManager(documentId,actorId);
@@ -199,6 +200,7 @@ public class DocumentService {
         return Map.of("id",documentId,"updated",true);
     }
 
+    @Transactional
     public Map<String,Object> retire(UUID documentId,String username) {
         UUID actorId=userId(username);
         requireDocumentManager(documentId,actorId);
@@ -271,6 +273,8 @@ public class DocumentService {
         boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
         boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
         boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
+        boolean exhaustedGrant = Boolean.TRUE.equals(grantState.get("exhausted"));
+        boolean notStartedGrant = Boolean.TRUE.equals(grantState.get("not_started"));
         java.util.Set<String> roles = new java.util.HashSet<>(jdbc.queryForList("""
             SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?
             """, String.class, actorId));
@@ -289,25 +293,29 @@ public class DocumentService {
             actorClearance,requiredClearance,roles,tags,activeGrant));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
-        if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
-        else if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
+        if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
+        else if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
+        else if (!allowed && exhaustedGrant) reason = "GRANT_DOWNLOAD_LIMIT_REACHED";
+        else if (!allowed && notStartedGrant) reason = "GRANT_NOT_STARTED";
         String explanation = policyResult.explanation();
         UUID decisionId = UUID.randomUUID();
-        String evidence = json(Map.of(
-            "actorDepartment", actorDept == null ? "" : actorDept,
-            "documentDepartment", docDept == null ? "" : docDept,
-            "classification", classification,
-            "accountEnabled", enabled,
-            "documentActive",activeDocument,
-            "owner",owner,
-            "actorRoles",roles,
-            "actorClearance",actorClearance,
-            "requiredClearance",requiredClearance,
-            "documentTags",tags,
-            "activeGrant",activeGrant,
-            "grantExpired", expiredGrant,
-            "grantRevoked", revokedGrant,
-            "action", action
+        String evidence = json(Map.ofEntries(
+            Map.entry("actorDepartment", actorDept == null ? "" : actorDept),
+            Map.entry("documentDepartment", docDept == null ? "" : docDept),
+            Map.entry("classification", classification),
+            Map.entry("accountEnabled", enabled),
+            Map.entry("documentActive", activeDocument),
+            Map.entry("owner", owner),
+            Map.entry("actorRoles", roles),
+            Map.entry("actorClearance", actorClearance),
+            Map.entry("requiredClearance", requiredClearance),
+            Map.entry("documentTags", tags),
+            Map.entry("activeGrant", activeGrant),
+            Map.entry("grantExpired", expiredGrant),
+            Map.entry("grantRevoked", revokedGrant),
+            Map.entry("grantExhausted", exhaustedGrant),
+            Map.entry("grantNotStarted", notStartedGrant),
+            Map.entry("action", action)
         ));
         UUID policyVersionId = policies.activeVersionId();
         jdbc.update("""
