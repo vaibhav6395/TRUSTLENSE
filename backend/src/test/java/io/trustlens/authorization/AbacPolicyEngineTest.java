@@ -59,4 +59,46 @@ class AbacPolicyEngineTest {
         assertTrue(engine.evaluate(p,ok).allowed());
         assertFalse(engine.evaluate(p,denied).allowed());
     }
+
+    @Test void higherPriorityDenyWinsOverLowerPriorityAllow() throws Exception {
+        var p=policy("{\"rules\":["
+            +"{\"id\":\"allow\",\"effect\":\"ALLOW\",\"priority\":10,\"actions\":[\"READ\"]},"
+            +"{\"id\":\"deny\",\"effect\":\"DENY\",\"priority\":20,\"actions\":[\"READ\"],\"reasonCode\":\"LEGAL_HOLD\"}]}");
+        var d=engine.evaluate(p,context(true,true,false,"READ","CSE","CSE","INTERNAL",3,1,Set.of("FACULTY"),Set.of(),true));
+        assertFalse(d.allowed());
+        assertEquals("LEGAL_HOLD",d.reasonCode());
+    }
+
+    @Test void firstMatchingRuleByPriorityDeterminesOutcome() throws Exception {
+        var p=policy("{\"rules\":["
+            +"{\"id\":\"deny\",\"effect\":\"DENY\",\"priority\":5,\"actions\":[\"DOWNLOAD\"]},"
+            +"{\"id\":\"allow\",\"effect\":\"ALLOW\",\"priority\":50,\"actions\":[\"DOWNLOAD\"],\"reasonCode\":\"GRANTED\"}]}");
+        var d=engine.evaluate(p,context(true,true,false,"DOWNLOAD","CSE","CSE","INTERNAL",3,1,Set.of("FACULTY"),Set.of(),true));
+        assertTrue(d.allowed());
+        assertEquals("GRANTED",d.reasonCode());
+    }
+
+    @Test void wildcardActionMatchesReadAndDownload() throws Exception {
+        var p=policy("{\"rules\":[{\"id\":\"all-actions\",\"effect\":\"ALLOW\",\"priority\":1,\"actions\":[\"*\"]}]}");
+        assertTrue(engine.evaluate(p,context(true,true,false,"READ","CSE","CSE","INTERNAL",3,1,Set.of(),Set.of(),false)).allowed());
+        assertTrue(engine.evaluate(p,context(true,true,false,"DOWNLOAD","CSE","CSE","INTERNAL",3,1,Set.of(),Set.of(),false)).allowed());
+    }
+
+    @Test void grantPermissionConditionRequiresMatchingAction() throws Exception {
+        var p=policy("{\"rules\":[{\"id\":\"download-only\",\"effect\":\"ALLOW\",\"priority\":1,\"actions\":[\"READ\",\"DOWNLOAD\"],\"conditions\":{\"grantPermission\":\"DOWNLOAD\"}}]}");
+        var read=engine.evaluate(p,context(true,true,false,"READ","CSE","CSE","INTERNAL",3,1,Set.of(),Set.of(),true));
+        var download=engine.evaluate(p,context(true,true,false,"DOWNLOAD","CSE","CSE","INTERNAL",3,1,Set.of(),Set.of(),true));
+        assertFalse(read.allowed());
+        assertTrue(download.allowed());
+    }
+
+    @Test void mismatchedCustomAttributeDeniesEvenWhenOtherAttributesMatch() throws Exception {
+        var p=policy("{\"rules\":[{\"id\":\"verified\",\"effect\":\"ALLOW\",\"priority\":1,\"actions\":[\"READ\"],\"subject\":{\"attributes\":{\"employmentStatus\":\"ACTIVE\"}}}]}");
+        var c=new AbacPolicyEngine.Context(true,true,false,"READ","CSE","CSE","INTERNAL",3,1,
+            Set.of("FACULTY"),Set.of(),java.util.Map.of("employmentStatus","SUSPENDED"),java.util.Map.of(),true);
+        var d=engine.evaluate(p,c);
+        assertFalse(d.allowed());
+        assertEquals("NO_MATCHING_POLICY",d.reasonCode());
+    }
+
 }
