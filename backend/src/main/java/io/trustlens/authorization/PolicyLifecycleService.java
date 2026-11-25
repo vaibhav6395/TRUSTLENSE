@@ -10,14 +10,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import io.trustlens.audit.IdentityAuditService;
 
 @Service
 public class PolicyLifecycleService {
     private static final String KEY = "CAMPUS_DOCUMENT_ACCESS";
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final IdentityAuditService audit;
 
-    public PolicyLifecycleService(JdbcTemplate jdbc,ObjectMapper mapper){this.jdbc=jdbc;this.mapper=mapper;}
+    public PolicyLifecycleService(JdbcTemplate jdbc,ObjectMapper mapper,IdentityAuditService audit){this.jdbc=jdbc;this.mapper=mapper;this.audit=audit;}
 
     public record DraftRequest(JsonNode rules,String note) {}
     public record ReviewRequest(String note) {}
@@ -160,5 +162,10 @@ public class PolicyLifecycleService {
         if(id==null)throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);return id;}
     private Map<String,Object> policyRow(UUID id){List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,created_by,version_number,status FROM policy_versions WHERE id=? AND policy_key=?",id,KEY);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Policy version not found");return rows.get(0);}
-    private void event(UUID policyId,UUID actorId,String type,String note){jdbc.update("INSERT INTO policy_change_events(id,policy_version_id,actor_user_id,event_type,note) VALUES (?,?,?,?,?)",UUID.randomUUID(),policyId,actorId,type,note);}
+    private void event(UUID policyId,UUID actorId,String type,String note){
+        jdbc.update("INSERT INTO policy_change_events(id,policy_version_id,actor_user_id,event_type,note) VALUES (?,?,?,?,?)",
+            UUID.randomUUID(),policyId,actorId,type,note);
+        String actor=jdbc.queryForObject("SELECT username FROM app_users WHERE id=?",String.class,actorId);
+        audit.record(actor,"POLICY_"+type,Map.of("policyVersionId",policyId.toString(),"note",note==null?"":note));
+    }
 }
