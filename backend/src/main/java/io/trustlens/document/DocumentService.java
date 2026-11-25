@@ -216,11 +216,12 @@ public class DocumentService {
             if(!retention.toInstant().isAfter(java.time.Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Retention expiry must be in the future");
         }
         jdbc.update("""
-            UPDATE documents SET title=?,description=?,classification=?,tags=CAST(? AS jsonb),required_clearance=?,retention_until=?,updated_at=now()
+            UPDATE documents SET title=?,description=?,classification=?,tags=CAST(? AS jsonb),required_clearance=?,
+              retention_until=?,attributes=CAST(? AS jsonb),updated_at=now()
             WHERE id=? AND status='ACTIVE'
             """,request.title().trim(),request.description()==null?"":request.description().trim(),
             request.classification(),json(request.tags()==null?java.util.List.of():request.tags()),
-            request.requiredClearance(),retention,documentId);
+            request.requiredClearance(),retention,json(request.attributes()==null?java.util.Map.of():request.attributes()),documentId);
         appendAudit(actorId,"DOCUMENT_METADATA_UPDATED",json(Map.of("documentId",documentId.toString(),
             "classification",request.classification(),"requiredClearance",request.requiredClearance())));
         return Map.of("id",documentId,"updated",true);
@@ -262,7 +263,7 @@ public class DocumentService {
         if(!Boolean.TRUE.equals(allowed)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Document owner or SECURITY_ADMIN role required");
     }
     public record DocumentMetadataRequest(String title,String description,String classification,
-        java.util.List<String> tags,int requiredClearance,String retentionUntil) {}
+        java.util.List<String> tags,int requiredClearance,String retentionUntil,java.util.Map<String,Object> attributes) {}
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> check(UUID documentId, String username, String action) {
