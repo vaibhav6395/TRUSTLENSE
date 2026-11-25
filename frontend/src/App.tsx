@@ -530,7 +530,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark"><ShieldCheck size={22}/></div><div><strong>TRUSTLENS</strong><small>ACCESS GOVERNANCE</small></div></div>
       <div><div className="nav-label">WORKSPACE</div>{[{name:'Overview' as Page,icon:LayoutDashboard},{name:'Documents' as Page,icon:FileLock2},{name:'People & roles' as Page,icon:Users}].map(item=><button key={item.name} className={`nav ${page===item.name?'active':''}`} onClick={()=>setPage(item.name)}><item.icon size={17}/>{item.name}</button>)}</div>
-      <div><div className="nav-label">SECURITY</div>{[{name:'Policy sandbox' as Page,icon:SlidersHorizontal},{name:'Decisions' as Page,icon:Fingerprint},{name:'Audit history' as Page,icon:History}].filter(item=>item.name!=='Policy sandbox'||user.authorities.includes('ROLE_SECURITY_ADMIN')).map(item=><button key={item.name} className={`nav ${page===item.name?'active':''}`} onClick={()=>setPage(item.name)}><item.icon size={17}/>{item.name}</button>)}</div>
+      <div><div className="nav-label">SECURITY</div>{[{name:'Policy sandbox' as Page,icon:SlidersHorizontal},{name:'Decisions' as Page,icon:Fingerprint},{name:'Audit history' as Page,icon:History}].filter(item=>item.name!=='Policy sandbox'||user.authorities.includes('PERM_POLICY_MANAGE')).map(item=><button key={item.name} className={`nav ${page===item.name?'active':''}`} onClick={()=>setPage(item.name)}><item.icon size={17}/>{item.name}</button>)}</div>
       <div className="sidebar-bottom"><div className="secure-icon"><ShieldCheck size={17}/></div><strong>Authenticated session</strong><p>Protected requests are evaluated by the backend.</p></div>
     </aside>
     <section className="content">
@@ -551,7 +551,7 @@ export default function App() {
         onUpdate={async(doc,payload)=>{await apiRequest(`/api/v1/documents/${doc.id}`,{method:'PATCH',body:JSON.stringify(payload)});await refreshData();setMessage('Document metadata updated.');}}/>}
       
       {page==='People & roles' && <People user={user} documents={documents} onChanged={refreshData}/>}
-      {page==='Policy sandbox' && user.authorities.includes('ROLE_SECURITY_ADMIN') && <PolicySandbox/>}
+      {page==='Policy sandbox' && user.authorities.includes('PERM_POLICY_MANAGE') && <PolicySandbox/>}
       {page==='Decisions' && <Decisions decisions={decisions}/>}
       {page==='Audit history' && <AuditHistory audit={audit}/>}
       <footer><span>TRUSTLENS · FULL-STACK VERTICAL SLICE</span><span>Session user · {user.username}</span></footer>
