@@ -352,53 +352,51 @@ function AdminUsers() {
   </section>;
 }
 function People({ user, documents, onChanged }: { user: CurrentUser; documents: DocumentItem[]; onChanged: () => Promise<void> }) {
-  const [grants,setGrants] = useState<GrantItem[]>([]);
-  const [error,setError] = useState('');
-  const [busy,setBusy] = useState('');
-  const [subject,setSubject] = useState('');
-  const [documentId,setDocumentId] = useState('');
-  const [permission,setPermission] = useState('READ');
-  const [expiresAt,setExpiresAt] = useState('');
-  const isAdmin = user.authorities.includes('ROLE_SECURITY_ADMIN');
-  async function load() {
-    try { setGrants(await apiGet<GrantItem[]>('/api/v1/grants')); setError(''); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not load grants'); }
-  }
-  useEffect(() => { if (isAdmin) void load(); }, [isAdmin]);
-  async function revoke(id: string) {
-    setBusy(id); setError('');
-    try { await apiPost(`/api/v1/grants/${id}/revoke`); await load(); await onChanged(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Revocation failed'); }
-    finally { setBusy(''); }
-  }
-  async function createGrant(e: FormEvent) {
-    e.preventDefault(); setBusy('create'); setError('');
-    try {
-      await apiPost('/api/v1/grants', {
-        documentId, subjectUsername: subject.trim(), permission,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-      });
-      setSubject(''); setExpiresAt(''); await load(); await onChanged();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Grant creation failed'); }
-    finally { setBusy(''); }
-  }
-  return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="Database-backed grant administration"/>
-    {!isAdmin && <div className="notice"><ShieldAlert size={16}/> Your account does not have the SECURITY_ADMIN role. Grant administration is restricted to security administrators.</div>}
-    {error && <div className="connection-notice">{error}</div>}
-    {isAdmin && <><FacultyRequests/><AdminUsers/><div className="notice"><CircleHelp size={16}/> Grants are evaluated against current server-side state. Expired and revoked grants cannot authorize subsequent requests.</div>
-      <form className="toolbar" onSubmit={createGrant}>
-        <select aria-label="Document" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
-          <option value="">Select document</option>{documents.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
-        </select>
-        <input aria-label="Subject username" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Existing username" required/>
-        <select aria-label="Permission" value={permission} onChange={e=>setPermission(e.target.value)}><option value="READ">READ</option><option value="DOWNLOAD">DOWNLOAD</option></select>
-        <input aria-label="Grant expiry" type="datetime-local" value={expiresAt} onChange={e=>setExpiresAt(e.target.value)}/>
-        <button className="primary" disabled={busy==='create'}>{busy==='create'?'Creating…':'Create grant'}</button>
-      </form>
-      <div className="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>SUBJECT</th><th>PERMISSION</th><th>STATUS</th><th/></tr></thead><tbody>
-        {grants.map(g=><tr key={g.id}><td>{g.document}</td><td>{g.subject}</td><td>{g.permission}</td><td><Badge tone={g.revokedAt?'red':'green'}>{g.revokedAt?'REVOKED':'ACTIVE'}</Badge></td><td>{!g.revokedAt && <button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke grant'}</button>}</td></tr>)}
-      </tbody></table>{grants.length===0 && <div className="empty">No grants found.</div>}</div>
+  const [grants,setGrants]=useState<GrantItem[]>([]);
+  const [error,setError]=useState('');const [busy,setBusy]=useState('');
+  const [subject,setSubject]=useState('');const [documentId,setDocumentId]=useState('');
+  const [permission,setPermission]=useState('READ');const [purpose,setPurpose]=useState('');
+  const [expiresAt,setExpiresAt]=useState('');const [maxDownloads,setMaxDownloads]=useState('');
+  const isAdmin=user.authorities.includes('ROLE_SECURITY_ADMIN');
+  const shareable=documents.filter(d=>isAdmin||d.ownerUsername===user.username);
+  async function load(){try{setGrants(await apiGet<GrantItem[]>('/api/v1/grants'));setError('');}
+    catch(e){setError(e instanceof Error?e.message:'Could not load shares');}}
+  useEffect(()=>{void load();},[]);
+  async function revoke(id:string){setBusy(id);setError('');
+    try{await apiPost(`/api/v1/grants/${id}/revoke`,{});await load();await onChanged();}
+    catch(e){setError(e instanceof Error?e.message:'Revocation failed');}finally{setBusy('');}}
+  async function createShare(e:FormEvent){e.preventDefault();setBusy('create');setError('');
+    try{await apiPost('/api/v1/grants',{documentId,subjectUsername:subject.trim(),permission,
+      expiresAt:expiresAt?new Date(expiresAt).toISOString():null,purpose,
+      maxDownloads:maxDownloads?Number(maxDownloads):null});
+      setSubject('');setPurpose('');setExpiresAt('');setMaxDownloads('');await load();await onChanged();}
+    catch(e){setError(e instanceof Error?e.message:'Share creation failed');}finally{setBusy('');}}
+  return <><SectionHeading eyebrow="IDENTITY GOVERNANCE" title="People & roles" detail="RBAC, ABAC attributes and controlled sharing"/>
+    {error&&<div className="connection-notice">{error}</div>}
+    {isAdmin&&<><FacultyRequests/><AdminUsers/>
+      <div className="notice"><ShieldCheck size={16}/> Administrators can assign roles and access profiles. Policy publication requires a second administrator's independent approval.</div>
     </>}
+    <section className="panel">
+      <div className="panel-heading"><div><span className="eyebrow">CONTROLLED SHARING</span><h3>Share a document</h3></div><LockKeyhole size={19}/></div>
+      <p className="muted">Owners can share within their department. Security administrators can share across departments. Every grant has an explicit permission, expiry and optional download cap.</p>
+      {shareable.length===0?<div className="empty">Upload a document to create a share grant.</div>:<form className="toolbar" onSubmit={createShare}>
+        <select aria-label="Document to share" value={documentId} onChange={e=>setDocumentId(e.target.value)} required>
+          <option value="">Choose an owned document</option>{shareable.map(d=><option key={d.id} value={d.id}>{d.title} · {d.classification}</option>)}
+        </select>
+        <input aria-label="Recipient username" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Recipient username" required/>
+        <select aria-label="Permission" value={permission} onChange={e=>setPermission(e.target.value)}><option value="READ">READ</option><option value="DOWNLOAD">DOWNLOAD</option></select>
+        <input aria-label="Share purpose" value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="Purpose / reason" maxLength={500}/>
+        <input aria-label="Grant expiry" type="datetime-local" value={expiresAt} onChange={e=>setExpiresAt(e.target.value)}/>
+        <input aria-label="Maximum downloads" type="number" min="1" max="10000" value={maxDownloads} onChange={e=>setMaxDownloads(e.target.value)} placeholder="Download limit (optional)"/>
+        <button className="primary" disabled={busy==='create'}>{busy==='create'?'Sharing…':'Create share grant'}</button>
+      </form>}
+    </section>
+    <section className="panel">
+      <div className="panel-heading"><div><span className="eyebrow">GRANT LEDGER</span><h3>Current and historical shares</h3></div><History size={19}/></div>
+      <div className="table-wrap"><table><thead><tr><th>DOCUMENT / PURPOSE</th><th>RECIPIENT</th><th>PERMISSION</th><th>EXPIRY / DOWNLOADS</th><th>STATUS</th><th/></tr></thead><tbody>
+        {grants.map(g=><tr key={g.id}><td>{g.document}<small>{g.purpose||'No purpose specified'}</small></td><td>{g.subject}</td><td>{g.permission}</td><td>{g.expiresAt?new Date(g.expiresAt).toLocaleString():'No expiry'}<small>{g.maxDownloads?(`${g.downloadCount??0}/${g.maxDownloads} downloads`):'No download cap'}</small></td><td><Badge tone={g.revokedAt?'red':'green'}>{g.revokedAt?'REVOKED':'ACTIVE'}</Badge></td><td>{!g.revokedAt&&<button className="secondary" disabled={busy===g.id} onClick={()=>void revoke(g.id)}>{busy===g.id?'Revoking…':'Revoke'}</button>}</td></tr>)}
+      </tbody></table>{grants.length===0&&<div className="empty">No grants created yet.</div>}</div>
+    </section>
   </>;
 }
 
