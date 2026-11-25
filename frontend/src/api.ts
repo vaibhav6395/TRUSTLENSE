@@ -58,7 +58,7 @@ export type CurrentUser = { authenticated: boolean; username: string; authoritie
 export type DocumentItem = {
   id: string; title: string; department: string; classification: string;
   status: string; created_at: string; owner: string; ownerUsername?: string;
-  description?: string; tags?: string[]; required_clearance?: number;
+  description?: string; tags?: string[]; required_clearance?: number; attributes?: Record<string,string>;
 };
 export type DecisionItem = {
   id: string; action: string; outcome: 'ALLOW' | 'DENY'; reasonCode: string;
