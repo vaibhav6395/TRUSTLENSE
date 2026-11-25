@@ -98,19 +98,35 @@ public class DocumentService {
         if (!java.nio.file.Files.isRegularFile(path)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document content is unavailable");
         }
+        jdbc.update("""
+            UPDATE access_grants SET download_count=download_count+1
+            WHERE document_id=? AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
+              AND permission='DOWNLOAD' AND starts_at<=now() AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at>now())
+              AND (max_downloads IS NULL OR download_count<max_downloads)
+            """,documentId,username);
+        jdbc.update("""
+            INSERT INTO document_download_events(id,document_id,user_id,grant_id)
+            VALUES (?, ?, (SELECT id FROM app_users WHERE username=?),
+              (SELECT id FROM access_grants WHERE document_id=? AND subject_user_id=(SELECT id FROM app_users WHERE username=?)
+               AND permission='DOWNLOAD' AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1))
+            """,UUID.randomUUID(),documentId,username,documentId,username);
         return new DownloadFile(path, (String) doc.get("title"), contentType, ((Number) sizeValue).longValue());
     }
 
     @Transactional
-    public Map<String, Object> upload(MultipartFile file, String title, String classification, String username) throws IOException {
+    public Map<String, Object> upload(MultipartFile file, String title, String classification, String description, java.util.List<String> tags, int requiredClearance, String username) throws IOException {
         if (title == null || title.isBlank() || title.length() > 240) {
             throw new IllegalArgumentException("Title is required and must be at most 240 characters");
         }
         if (classification == null || !CLASSIFICATIONS.contains(classification)) {
             throw new IllegalArgumentException("Classification must be PUBLIC, INTERNAL, CONFIDENTIAL or RESTRICTED");
         }
+        if(requiredClearance<0||requiredClearance>5) throw new IllegalArgumentException("Required clearance must be between 0 and 5");
+        if(tags!=null&&(tags.size()>20||tags.stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
+            throw new IllegalArgumentException("Use at most 20 non-empty tags, each at most 40 characters");
         Map<String, Object> actor = jdbc.queryForMap(
-            "SELECT id, department_code FROM app_users WHERE username=? AND enabled=TRUE", username);
+            "SELECT id, department_code, clearance_level FROM app_users WHERE username=? AND enabled=TRUE", username);
         UUID ownerId = (UUID) actor.get("id");
         if ("PUBLIC".equals(classification) || "RESTRICTED".equals(classification)) {
             Boolean admin = jdbc.queryForObject("""
@@ -127,10 +143,11 @@ public class DocumentService {
         try {
             jdbc.update("""
                 INSERT INTO documents(id,title,owner_id,department_code,classification,storage_key,status,
-                                      content_type,size_bytes,content_sha256)
-                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?)
+                                      content_type,size_bytes,content_sha256,description,tags,required_clearance)
+                VALUES (?,?,?,?,?,?, 'ACTIVE',?,?,?,?,?,?)
                 """, documentId, title.trim(), ownerId, actor.get("department_code"), classification,
-                stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256());
+                stored.storageKey(), stored.contentType(), stored.sizeBytes(), stored.sha256(),
+                description==null?"":description.trim(),tags==null?new String[]{}:tags.toArray(String[]::new),requiredClearance);
             appendAudit(ownerId, "DOCUMENT_UPLOADED", json(Map.of(
                 "documentId", documentId.toString(), "classification", classification,
                 "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256())));
@@ -139,8 +156,57 @@ public class DocumentService {
             throw ex;
         }
         return Map.of("id", documentId, "title", title.trim(), "classification", classification,
-                      "sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
+                      "description",description==null?"":description.trim(),"tags",tags==null?java.util.List.of():tags,
+                      "requiredClearance",requiredClearance,"sizeBytes", stored.sizeBytes(), "sha256", stored.sha256());
     }
+
+    public Map<String,Object> updateMetadata(UUID documentId,String username,DocumentMetadataRequest request) {
+        UUID actorId=userId(username);
+        requireDocumentManager(documentId,actorId);
+        if(request.title()==null||request.title().isBlank()||request.title().length()>240)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Title is required and must be at most 240 characters");
+        if(!CLASSIFICATIONS.contains(request.classification()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid classification");
+        if(request.requiredClearance()<0||request.requiredClearance()>5)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Required clearance must be between 0 and 5");
+        if(request.tags()!=null&&(request.tags().size()>20||request.tags().stream().anyMatch(t->t==null||t.isBlank()||t.length()>40)))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid document tags");
+        jdbc.update("""
+            UPDATE documents SET title=?,description=?,classification=?,tags=?,required_clearance=?,updated_at=now()
+            WHERE id=? AND status='ACTIVE'
+            """,request.title().trim(),request.description()==null?"":request.description().trim(),
+            request.classification(),request.tags()==null?new String[]{}:request.tags().toArray(String[]::new),
+            request.requiredClearance(),documentId);
+        appendAudit(actorId,"DOCUMENT_METADATA_UPDATED",json(Map.of("documentId",documentId.toString(),
+            "classification",request.classification(),"requiredClearance",request.requiredClearance())));
+        return Map.of("id",documentId,"updated",true);
+    }
+
+    public Map<String,Object> retire(UUID documentId,String username) {
+        UUID actorId=userId(username);
+        requireDocumentManager(documentId,actorId);
+        int changed=jdbc.update("UPDATE documents SET status='RETIRED',updated_at=now() WHERE id=? AND status='ACTIVE'",documentId);
+        if(changed!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Document is already retired or unavailable");
+        jdbc.update("UPDATE access_grants SET revoked_at=now(),revoked_by=? WHERE document_id=? AND revoked_at IS NULL",actorId,documentId);
+        appendAudit(actorId,"DOCUMENT_RETIRED",json(Map.of("documentId",documentId.toString())));
+        return Map.of("id",documentId,"status","RETIRED");
+    }
+
+    private UUID userId(String username) {
+        UUID id=jdbc.query("SELECT id FROM app_users WHERE username=? AND enabled=TRUE",rs->rs.next()?rs.getObject(1,UUID.class):null,username);
+        if(id==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return id;
+    }
+    private void requireDocumentManager(UUID documentId,UUID actorId) {
+        Boolean allowed=jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM documents d WHERE d.id=? AND
+              (d.owner_id=? OR EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
+               WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')))
+            """,Boolean.class,documentId,actorId,actorId);
+        if(!Boolean.TRUE.equals(allowed)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Document owner or SECURITY_ADMIN role required");
+    }
+    public record DocumentMetadataRequest(String title,String description,String classification,
+        java.util.List<String> tags,int requiredClearance) {}
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public Map<String, Object> check(UUID documentId, String username, String action) {
