@@ -2,7 +2,8 @@ package io.trustlens.document;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.trustlens.authorization.PolicyEvaluator;
+import io.trustlens.authorization.AbacPolicyEngine;
+import io.trustlens.authorization.PolicyLifecycleService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -25,11 +26,16 @@ public class DocumentService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final DocumentFileStorage storage;
+    private final AbacPolicyEngine policyEngine;
+    private final PolicyLifecycleService policies;
 
-    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper, DocumentFileStorage storage) {
+    public DocumentService(JdbcTemplate jdbc, ObjectMapper mapper, DocumentFileStorage storage,
+                           AbacPolicyEngine policyEngine, PolicyLifecycleService policies) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.storage = storage;
+        this.policyEngine = policyEngine;
+        this.policies = policies;
     }
 
     public java.util.List<Map<String, Object>> listVisible(String username) {
@@ -146,10 +152,10 @@ public class DocumentService {
 
     private Map<String, Object> evaluateAndRecord(UUID documentId, String username, String action) {
         Map<String, Object> actor = jdbc.queryForMap(
-            "SELECT id, department_code, enabled FROM app_users WHERE username=?", username);
+            "SELECT id, department_code, enabled, clearance_level FROM app_users WHERE username=?", username);
         Map<String, Object> doc;
         try {
-            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status FROM documents WHERE id=?", documentId);
+            doc = jdbc.queryForMap("SELECT id, owner_id, department_code, classification, status, tags, required_clearance FROM documents WHERE id=?", documentId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
         }
@@ -162,16 +168,13 @@ public class DocumentService {
         boolean enabled = Boolean.TRUE.equals(actor.get("enabled"));
         boolean activeDocument = "ACTIVE".equals(doc.get("status"));
         boolean owner = actorId.equals(ownerId);
-        boolean publicRead = "PUBLIC".equals(classification) && "READ".equals(action);
-        boolean securityAdmin = Boolean.TRUE.equals(jdbc.queryForObject("""
-            SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id
-             WHERE ur.user_id=? AND r.code='SECURITY_ADMIN')
-            """, Boolean.class, actorId));
         String permission = "DOWNLOAD".equals(action) ? "DOWNLOAD" : "READ";
         Map<String, Object> grantState = jdbc.queryForMap("""
             SELECT
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
-                     AND permission=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active,
+                     AND permission=? AND starts_at <= now() AND revoked_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > now())
+                     AND (max_downloads IS NULL OR download_count < max_downloads)) AS active,
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
                      AND permission=? AND revoked_at IS NULL AND expires_at <= now()) AS expired,
               EXISTS(SELECT 1 FROM access_grants WHERE document_id=? AND subject_user_id=?
@@ -181,17 +184,27 @@ public class DocumentService {
         boolean activeGrant = Boolean.TRUE.equals(grantState.get("active"));
         boolean expiredGrant = Boolean.TRUE.equals(grantState.get("expired"));
         boolean revokedGrant = Boolean.TRUE.equals(grantState.get("revoked"));
-        boolean departmentMatch = actorDept != null && actorDept.equals(docDept);
-        PolicyEvaluator.Result policyResult = PolicyEvaluator.evaluate(new PolicyEvaluator.Facts(
-            enabled, activeDocument, owner, publicRead, activeGrant,
-            securityAdmin && departmentMatch && "READ".equals(action)
-        ));
+        java.util.Set<String> roles = new java.util.HashSet<>(jdbc.queryForList("""
+            SELECT r.code FROM user_roles ur JOIN app_roles r ON r.id=ur.role_id WHERE ur.user_id=?
+            """, String.class, actorId));
+        Object rawTags = doc.get("tags");
+        java.util.Set<String> tags = new java.util.HashSet<>();
+        if (rawTags instanceof String[] tagArray) java.util.Collections.addAll(tags, tagArray);
+        else if (rawTags instanceof java.sql.Array sqlArray) {
+            try { java.util.Collections.addAll(tags,(String[])sqlArray.getArray()); }
+            catch (java.sql.SQLException ignored) { }
+        }
+        int actorClearance = ((Number)actor.get("clearance_level")).intValue();
+        int requiredClearance = ((Number)doc.get("required_clearance")).intValue();
+        var policyRules = policies.activeRules();
+        var policyResult = policyEngine.evaluate(policyRules,new AbacPolicyEngine.Context(
+            enabled,activeDocument,owner,action,actorDept,docDept,classification,
+            actorClearance,requiredClearance,roles,tags,activeGrant));
         boolean allowed = policyResult.allowed();
         String reason = policyResult.reasonCode();
         if (!allowed && expiredGrant) reason = "GRANT_EXPIRED";
         else if (!allowed && revokedGrant) reason = "GRANT_REVOKED";
-        String explanation = allowed ? "The current server-side policy permits this action (" + reason + ")."
-            : "Access denied because no active policy condition permits this action (" + reason + ").";
+        String explanation = policyResult.explanation();
         UUID decisionId = UUID.randomUUID();
         String evidence = json(Map.of(
             "actorDepartment", actorDept == null ? "" : actorDept,
@@ -205,10 +218,11 @@ public class DocumentService {
             "grantRevoked", revokedGrant,
             "action", action
         ));
+        UUID policyVersionId = policies.activeVersionId();
         jdbc.update("""
             INSERT INTO access_decisions(id,actor_user_id,document_id,action,outcome,reason_code,explanation,policy_version_id,evidence_snapshot)
-            VALUES (?,?,?,?,?,?,?,NULL,CAST(? AS jsonb))
-            """, decisionId, actorId, documentId, action, allowed ? "ALLOW" : "DENY", reason, explanation, evidence);
+            VALUES (?,?,?,?,?,?,?,?,CAST(? AS jsonb))
+            """, decisionId, actorId, documentId, action, allowed ? "ALLOW" : "DENY", reason, explanation, policyVersionId, evidence);
         appendAudit(actorId, "ACCESS_" + (allowed ? "ALLOW" : "DENY"),
             json(Map.of("decisionId", decisionId.toString(), "documentId", documentId.toString(),
                         "action", action, "reasonCode", reason)));
