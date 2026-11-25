@@ -188,65 +188,100 @@ function Documents({ documents, onRead, busyId, onUpload, onDownload }: {
     <p className="footnote"><LockKeyhole size={14}/> Every read and download is checked by the backend. Old application URLs do not bypass current grant checks.</p>
   </>;
 }
-type SandboxScenario = {
-  id: number; user: string; role: string; department: string; document: string;
-  classification: string; documentDepartment: string; owner: boolean; grant: boolean; action: 'READ' | 'DOWNLOAD';
+type PolicyVersion = {
+  id: string; policyKey: string; version: number; status: string;
+  createdAt: string; publishedAt: string|null; createdBy: string|null;
+  approvedBy: string|null; reviewNote: string|null;
 };
-
-const sandboxScenarios: SandboxScenario[] = [
-  { id: 1, user: 'A. Sharma', role: 'FACULTY', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: true, action: 'READ' },
-  { id: 2, user: 'R. Mehta', role: 'FACULTY', department: 'CSE', document: 'Lab handbook', classification: 'INTERNAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
-  { id: 3, user: 'K. Rao', role: 'FACULTY', department: 'ECE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
-  { id: 4, user: 'M. Das', role: 'SECURITY_ADMIN', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'READ' },
-  { id: 5, user: 'S. Khan', role: 'STUDENT', department: 'IT', document: 'Public notice', classification: 'PUBLIC', documentDepartment: 'ADMIN', owner: false, grant: false, action: 'READ' },
-  { id: 6, user: 'P. Verma', role: 'FACULTY', department: 'CSE', document: 'Research proposal', classification: 'CONFIDENTIAL', documentDepartment: 'CSE', owner: false, grant: false, action: 'DOWNLOAD' },
+const demoPolicyScenarios = [
+  {id:'owner-read',accountEnabled:true,documentActive:true,owner:true,action:'READ',actorDepartment:'CSE',documentDepartment:'CSE',classification:'CONFIDENTIAL',actorClearance:3,requiredClearance:2,roles:['FACULTY'],documentTags:['research'],activeGrant:false},
+  {id:'active-grant-download',accountEnabled:true,documentActive:true,owner:false,action:'DOWNLOAD',actorDepartment:'ECE',documentDepartment:'CSE',classification:'CONFIDENTIAL',actorClearance:3,requiredClearance:2,roles:['FACULTY'],documentTags:['research'],activeGrant:true},
+  {id:'expired-grant-read',accountEnabled:true,documentActive:true,owner:false,action:'READ',actorDepartment:'ECE',documentDepartment:'CSE',classification:'INTERNAL',actorClearance:2,requiredClearance:1,roles:['FACULTY'],documentTags:[],activeGrant:false},
+  {id:'insufficient-clearance',accountEnabled:true,documentActive:true,owner:false,action:'READ',actorDepartment:'CSE',documentDepartment:'CSE',classification:'RESTRICTED',actorClearance:1,requiredClearance:4,roles:['FACULTY'],documentTags:['exam'],activeGrant:true},
+  {id:'disabled-account',accountEnabled:false,documentActive:true,owner:true,action:'READ',actorDepartment:'CSE',documentDepartment:'CSE',classification:'PUBLIC',actorClearance:5,requiredClearance:0,roles:['SECURITY_ADMIN'],documentTags:[],activeGrant:true},
+  {id:'same-department-admin',accountEnabled:true,documentActive:true,owner:false,action:'READ',actorDepartment:'CSE',documentDepartment:'CSE',classification:'INTERNAL',actorClearance:3,requiredClearance:1,roles:['SECURITY_ADMIN'],documentTags:['policy'],activeGrant:false},
 ];
-
 function PolicySandbox() {
-  const [departmentRead, setDepartmentRead] = useState(false);
-  const [publicRead, setPublicRead] = useState(true);
-  const [hasSimulated, setHasSimulated] = useState(false);
-  const evaluate = (s: SandboxScenario, proposed: boolean) => {
-    if (s.owner) return { allowed: true, reason: 'DOCUMENT_OWNER' };
-    if ((!proposed || publicRead) && s.classification === 'PUBLIC' && s.action === 'READ') return { allowed: true, reason: 'PUBLIC_READ' };
-    if (s.grant) return { allowed: true, reason: 'ACTIVE_GRANT' };
-    if (s.role === 'SECURITY_ADMIN' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'SECURITY_ADMIN_SAME_DEPARTMENT' };
-    if (proposed && departmentRead && s.role === 'FACULTY' && s.department === s.documentDepartment && s.action === 'READ') return { allowed: true, reason: 'PROPOSED_FACULTY_DEPARTMENT_RULE' };
-    return { allowed: false, reason: 'NO_MATCHING_POLICY' };
-  };
-  const rows = sandboxScenarios.map(s => {
-    const current = evaluate(s, false);
-    const next = evaluate(s, true);
-    return { ...s, current, next, changed: current.allowed !== next.allowed };
-  });
-  const gained = rows.filter(r => !r.current.allowed && r.next.allowed).length;
-  const lost = rows.filter(r => r.current.allowed && !r.next.allowed).length;
-  const unchanged = rows.length - gained - lost;
-  return <><SectionHeading eyebrow="POLICY INTELLIGENCE" title="Policy sandbox" detail="Read-only synthetic simulation"/>
-    <div className="notice"><ShieldAlert size={16}/> Simulation uses six fabricated scenarios in the browser. It does not query or modify live grants, publish policies, or make production access decisions.</div>
+  const [rulesText,setRulesText] = useState('');
+  const [versions,setVersions] = useState<PolicyVersion[]>([]);
+  const [activeVersion,setActiveVersion] = useState('');
+  const [results,setResults] = useState<{id:string;allowed:boolean;reasonCode:string;explanation:string}[]>([]);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState('');
+  async function load() {
+    try {
+      const data=await apiGet<{versions:PolicyVersion[];activeRules:unknown;activeVersionId:string}>('/api/v1/policies');
+      setVersions(data.versions); setActiveVersion(data.activeVersionId);
+      if(!rulesText) setRulesText(JSON.stringify(data.activeRules,null,2));
+      setError('');
+    } catch(e) { setError(e instanceof Error?e.message:'Could not load policy lifecycle'); }
+  }
+  useEffect(()=>{void load();},[]);
+  function parseRules() {
+    try { return JSON.parse(rulesText); }
+    catch { throw new Error('Policy JSON is invalid. Correct the JSON before simulation or submission.'); }
+  }
+  async function simulate() {
+    setBusy('simulate');setError('');
+    try {
+      const result=await apiPost<{results:{id:string;allowed:boolean;reasonCode:string;explanation:string}[]}>('/api/v1/policies/simulate',{rules:parseRules(),scenarios:demoPolicyScenarios});
+      setResults(result.results);
+    } catch(e) {setError(e instanceof Error?e.message:'Simulation failed');}
+    finally {setBusy('');}
+  }
+  async function submitDraft() {
+    setBusy('submit');setError('');
+    try {
+      const draft=await apiPost<{id:string;version:number}>('/api/v1/policies/drafts',{rules:parseRules(),note:'Policy change submitted from TRUSTLENS policy studio'});
+      await apiPost(`/api/v1/policies/${draft.id}/submit`,{});
+      await load();
+    } catch(e) {setError(e instanceof Error?e.message:'Could not submit policy draft');}
+    finally {setBusy('');}
+  }
+  async function review(id:string,action:'approve'|'reject') {
+    setBusy(id);setError('');
+    try {
+      await apiPost(`/api/v1/policies/${id}/${action}`,{note:action==='approve'?'Independent security review approved':'Policy rejected during review'});
+      await load();
+    } catch(e) {setError(e instanceof Error?e.message:'Policy review failed');}
+    finally {setBusy('');}
+  }
+  const allowed=results.filter(r=>r.allowed).length;
+  return <><SectionHeading eyebrow="POLICY INTELLIGENCE" title="Policy studio" detail="Live ABAC simulation, versioning and independent publication"/>
+    <div className="notice"><ShieldAlert size={16}/> Only SECURITY_ADMIN can manage policies. Simulation uses the backend evaluator. A different administrator must approve a submitted version; the author cannot approve their own change. System guardrails always deny disabled accounts, inactive documents and insufficient clearance.</div>
+    {error&&<div className="connection-notice">{error}</div>}
     <div className="sandbox-grid">
-      <div className="panel">
-        <div className="panel-heading"><div><span className="eyebrow">DRAFT POLICY</span><h3>Proposed rule controls</h3></div><SlidersHorizontal size={19}/></div>
-        <label className="sandbox-toggle"><input type="checkbox" checked={publicRead} onChange={e => {setPublicRead(e.target.checked);setHasSimulated(false);}}/> Permit READ for PUBLIC documents</label>
-        <label className="sandbox-toggle"><input type="checkbox" checked={departmentRead} onChange={e => {setDepartmentRead(e.target.checked);setHasSimulated(false);}}/> Permit same-department FACULTY READ</label>
-        <p className="muted">Current baseline mirrors the implemented evaluator. The faculty department rule is an experimental draft condition.</p>
-        <button className="primary" onClick={() => setHasSimulated(true)}>Run simulation <ChevronRight size={15}/></button>
-        <div className="footnote"><ShieldCheck size={14}/> Read-only: changing controls never writes to the backend.</div>
-      </div>
-      <div className="panel">
-        <div className="panel-heading"><div><span className="eyebrow">IMPACT SUMMARY</span><h3>Predicted access changes</h3></div><Activity size={19}/></div>
-        <div className="metrics sandbox-metrics">
-          <div className="metric"><span className="metric-top">Gain access</span><strong>{hasSimulated ? gained : '—'}</strong><small>New ALLOW outcomes</small></div>
-          <div className="metric"><span className="metric-top">Lose access</span><strong>{hasSimulated ? lost : '—'}</strong><small>New DENY outcomes</small></div>
+      <section className="panel">
+        <div className="panel-heading"><div><span className="eyebrow">POLICY RULESET</span><h3>JSON rule editor</h3></div><SlidersHorizontal size={19}/></div>
+        <textarea className="policy-editor" rows={22} spellCheck={false} value={rulesText} onChange={e=>setRulesText(e.target.value)} placeholder="Loading active policy rules…"/>
+        <div className="toolbar">
+          <button className="secondary" disabled={busy!==''} onClick={()=>void simulate()}>{busy==='simulate'?'Simulating…':'Run backend simulation'}</button>
+          <button className="primary" disabled={busy!==''} onClick={()=>void submitDraft()}>{busy==='submit'?'Submitting…':'Create and submit draft'}</button>
         </div>
-        <p className="muted">{hasSimulated ? `${unchanged} of ${rows.length} scenarios remain unchanged. Review each changed outcome below.` : 'Run the simulation to calculate the impact of your draft rules.'}</p>
-      </div>
+        <p className="footnote">Supported rule attributes: actions, effect, priority, subject roles/departments/clearance, resource classification/department/tags, owner and active-grant conditions. Unknown scripting is not executed.</p>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><div><span className="eyebrow">ACTIVE VERSION</span><h3>Published policy</h3></div><ShieldCheck size={19}/></div>
+        <strong>{activeVersion||'Built-in baseline policy'}</strong>
+        <p className="muted">The active published version is used by the backend on every document read and download request. New versions do not rewrite historical decisions.</p>
+        <div className="metrics sandbox-metrics">
+          <div className="metric"><span className="metric-top">Simulated ALLOW</span><strong>{results.length?allowed:'—'}</strong></div>
+          <div className="metric"><span className="metric-top">Simulated DENY</span><strong>{results.length?results.length-allowed:'—'}</strong></div>
+        </div>
+      </section>
     </div>
-    <div className="section-heading"><div><span className="eyebrow">SCENARIO ANALYSIS</span><h2>Predicted decision comparison</h2></div><span className="muted">Synthetic identities only · {rows.length} cases</span></div>
-    <div className="table-wrap"><table><thead><tr><th>IDENTITY</th><th>RESOURCE / ACTION</th><th>CURRENT</th><th>PROPOSED</th><th>EXPLANATION</th></tr></thead><tbody>
-      {rows.map(r => <tr key={r.id}><td><strong>{r.user}</strong><small>{r.role} · {r.department}</small></td><td>{r.document}<small>{r.classification} · {r.action}</small></td><td><Badge tone={r.current.allowed ? 'green' : 'red'}>{r.current.allowed ? 'ALLOW' : 'DENY'}</Badge></td><td><Badge tone={r.next.allowed ? 'green' : 'red'}>{r.next.allowed ? 'ALLOW' : 'DENY'}</Badge></td><td>{hasSimulated ? <><strong>{r.changed ? 'CHANGED' : 'UNCHANGED'}</strong><small>{r.next.reason}</small></> : <small>Run simulation to review impact</small>}</td></tr>)}
-    </tbody></table></div>
-    <div className="panel explanation"><span className="eyebrow">NEXT POLICY LIFECYCLE STEPS</span><h3>Draft → Simulate → Review → Publish immutable version → Verify observed impact</h3><p className="muted">This prototype demonstrates impact comparison on synthetic scenarios. Policy persistence, approval, immutable publication, and Policy Impact Verification against real observed decisions remain planned backend work.</p></div>
+    {results.length>0&&<section className="panel">
+      <div className="panel-heading"><div><span className="eyebrow">SERVER-SIDE EVALUATION</span><h3>Simulation results</h3></div><Activity size={19}/></div>
+      <div className="table-wrap"><table><thead><tr><th>SCENARIO</th><th>RESULT</th><th>REASON</th><th>EXPLANATION</th></tr></thead><tbody>
+        {results.map(r=><tr key={r.id}><td>{r.id}</td><td><Badge tone={r.allowed?'green':'red'}>{r.allowed?'ALLOW':'DENY'}</Badge></td><td>{r.reasonCode}</td><td>{r.explanation}</td></tr>)}
+      </tbody></table></div>
+    </section>}
+    <section className="panel">
+      <div className="panel-heading"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Policy versions and review queue</h3></div><History size={19}/></div>
+      <div className="table-wrap"><table><thead><tr><th>VERSION</th><th>STATUS</th><th>AUTHOR</th><th>REVIEWER</th><th>ACTION</th></tr></thead><tbody>
+        {versions.map(v=><tr key={v.id}><td>v{v.version}<small>{v.id}</small></td><td><Badge tone={v.status==='PUBLISHED'?'green':v.status==='REJECTED'?'red':'amber'}>{v.status}</Badge></td><td>{v.createdBy??'—'}</td><td>{v.approvedBy??'—'}</td><td>{v.status==='PENDING_APPROVAL'?<div className="toolbar"><button className="primary" disabled={busy===v.id} onClick={()=>void review(v.id,'approve')}>Approve & publish</button><button className="secondary" disabled={busy===v.id} onClick={()=>void review(v.id,'reject')}>Reject</button></div>:v.reviewNote??'—'}</td></tr>)}
+      </tbody></table>{versions.length===0&&<div className="empty">No published or draft versions yet. The built-in baseline is active.</div>}</div>
+    </section>
   </>;
 }
 function Decisions({ decisions }: { decisions: DecisionItem[] }) {
