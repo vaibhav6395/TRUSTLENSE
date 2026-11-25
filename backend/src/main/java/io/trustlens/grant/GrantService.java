@@ -27,7 +27,12 @@ public class GrantService {
             SELECT g.id,d.title AS document,u.username AS subject,g.permission,
                    g.expires_at AS "expiresAt",g.revoked_at AS "revokedAt",
                    g.purpose,g.max_downloads AS "maxDownloads",g.download_count AS "downloadCount",
-                   g.starts_at AS "startsAt",creator.username AS "createdBy"
+                   g.starts_at AS "startsAt",creator.username AS "createdBy",
+                   CASE WHEN g.revoked_at IS NOT NULL THEN 'REVOKED'
+                        WHEN g.starts_at>now() THEN 'SCHEDULED'
+                        WHEN g.expires_at<=now() THEN 'EXPIRED'
+                        WHEN g.max_downloads IS NOT NULL AND g.download_count>=g.max_downloads THEN 'EXHAUSTED'
+                        ELSE 'ACTIVE' END AS status
             FROM access_grants g JOIN documents d ON d.id=g.document_id
             JOIN app_users u ON u.id=g.subject_user_id JOIN app_users creator ON creator.id=g.granted_by
             WHERE ? OR d.owner_id=? OR g.granted_by=?
@@ -61,11 +66,17 @@ public class GrantService {
         String purpose=request.purpose()==null?"":request.purpose().trim();
         if(purpose.length()>500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Share purpose is limited to 500 characters");
 
+        Timestamp starts=Timestamp.from(Instant.now());
+        if(request.startsAt()!=null&&!request.startsAt().isBlank()){
+            try{starts=Timestamp.from(OffsetDateTime.parse(request.startsAt()).toInstant());}
+            catch(java.time.format.DateTimeParseException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"startsAt must be an ISO-8601 timestamp with timezone");}
+            if(starts.toInstant().isBefore(Instant.now().minusSeconds(30))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Grant start time cannot be in the past");
+        }
         Timestamp expiry = null;
         if (request.expiresAt() != null && !request.expiresAt().isBlank()) {
             try {
                 Instant instant = OffsetDateTime.parse(request.expiresAt()).toInstant();
-                if (!instant.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Grant expiry must be in the future");
+                if (!instant.isAfter(starts.toInstant())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Grant expiry must be after its start time");
                 expiry = Timestamp.from(instant);
             } catch (java.time.format.DateTimeParseException ex) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "expiresAt must be an ISO-8601 timestamp with timezone");
@@ -73,15 +84,16 @@ public class GrantService {
         }
         UUID grantId = UUID.randomUUID();
         jdbc.update("""
-            INSERT INTO access_grants(id,document_id,subject_user_id,permission,granted_by,expires_at,purpose,max_downloads)
-            VALUES (?,?,?,?,?,?,?,?)
-            """,grantId,request.documentId(),subjectId,permission,actorId,expiry,purpose,request.maxDownloads());
+            INSERT INTO access_grants(id,document_id,subject_user_id,permission,granted_by,starts_at,expires_at,purpose,max_downloads)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """,grantId,request.documentId(),subjectId,permission,actorId,starts,expiry,purpose,request.maxDownloads());
         appendAudit(actorId, "GRANT_CREATED", "{\"grantId\":\"" + grantId + "\",\"documentId\":\"" +
             request.documentId() + "\",\"subject\":\"" + request.subjectUsername().trim() +
             "\",\"permission\":\"" + permission + "\"}");
         return Map.of("grantId", grantId, "documentId", request.documentId(),
             "subjectUsername", request.subjectUsername().trim(), "permission", permission,
-            "expiresAt", expiry == null ? "" : expiry.toInstant().toString());
+            "expiresAt",expiry==null?"":expiry.toInstant().toString(),"startsAt",starts.toInstant().toString(),
+            "purpose",purpose,"maxDownloads",request.maxDownloads()==null?0:request.maxDownloads());
     }
 
     @Transactional
@@ -131,5 +143,5 @@ public class GrantService {
         catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
     }
 
-    public record CreateGrantRequest(UUID documentId,String subjectUsername,String permission,String expiresAt,String purpose,Integer maxDownloads) {}
+    public record CreateGrantRequest(UUID documentId,String subjectUsername,String permission,String startsAt,String expiresAt,String purpose,Integer maxDownloads) {}
 }
