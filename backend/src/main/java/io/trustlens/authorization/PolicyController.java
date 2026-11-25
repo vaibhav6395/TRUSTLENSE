@@ -37,6 +37,9 @@ public class PolicyController {
         return policies.reject(id,body,auth.getName());
     }
 
+    @PostMapping("/{id}/impact-verify")
+    public Map<String,Object> impact(@PathVariable UUID id){return policies.impact(id);}
+
     @PostMapping("/simulate")
     public Map<String,Object> simulate(@RequestBody SimulationRequest request){
         return policies.simulate(request.rules(),request.scenarios(),engine);
