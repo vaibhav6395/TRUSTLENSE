@@ -131,6 +131,47 @@ public class PolicyLifecycleService {
         return Map.of("results",results,"scenarioCount",results.size());
     }
 
+    public Map<String,Object> impact(UUID policyVersionId) {
+        Map<String,Object> version=policyRow(policyVersionId);
+        String raw=jdbc.queryForObject("SELECT rules::text FROM policy_versions WHERE id=?",String.class,policyVersionId);
+        JsonNode proposed;
+        try{proposed=mapper.readTree(raw);}catch(Exception ex){throw new IllegalStateException(ex);}
+        List<Map<String,Object>> history=jdbc.queryForList("""
+            SELECT id,outcome,action,evidence_snapshot::text AS evidence
+            FROM access_decisions WHERE evidence_snapshot IS NOT NULL
+            ORDER BY decided_at DESC LIMIT 100
+            """);
+        java.util.List<Map<String,Object>> comparisons=new java.util.ArrayList<>();
+        int gains=0,losses=0,unchanged=0;
+        for(Map<String,Object> row:history){
+            try{
+                JsonNode e=mapper.readTree((String)row.get("evidence"));
+                java.util.Set<String> roles=new java.util.HashSet<>();e.path("actorRoles").forEach(v->roles.add(v.asText()));
+                java.util.Set<String> tags=new java.util.HashSet<>();e.path("documentTags").forEach(v->tags.add(v.asText()));
+                var ctx=new AbacPolicyEngine.Context(e.path("accountEnabled").asBoolean(),
+                    e.path("documentActive").asBoolean(),e.path("owner").asBoolean(),
+                    (String)row.get("action"),e.path("actorDepartment").asText(""),
+                    e.path("documentDepartment").asText(""),e.path("classification").asText("INTERNAL"),
+                    e.path("actorClearance").asInt(),e.path("requiredClearance").asInt(),roles,tags,
+                    e.path("activeGrant").asBoolean());
+                var next=new AbacPolicyEngine().evaluate(proposed,ctx);
+                boolean previous="ALLOW".equals(row.get("outcome"));
+                if(!previous&&next.allowed())gains++;else if(previous&&!next.allowed())losses++;else unchanged++;
+                comparisons.add(Map.of("decisionId",row.get("id").toString(),"previousOutcome",row.get("outcome"),
+                    "proposedOutcome",next.allowed()?"ALLOW":"DENY","changed",previous!=next.allowed(),
+                    "reasonCode",next.reasonCode()));
+            }catch(Exception ex){comparisons.add(Map.of("decisionId",row.get("id").toString(),"error","Evidence could not be replayed"));}
+        }
+        return Map.of("policyVersionId",policyVersionId,"sampleSize",comparisons.size(),
+            "gainedAccess",gains,"lostAccess",losses,"unchanged",unchanged,"comparisons",comparisons);
+    }
+
+    public JsonNode rulesForVersion(UUID versionId) {
+        if(versionId==null)return baseline();
+        String raw=jdbc.queryForObject("SELECT rules::text FROM policy_versions WHERE id=?",String.class,versionId);
+        try{return mapper.readTree(raw);}catch(Exception ex){throw new IllegalStateException(ex);}
+    }
+
     private void validate(JsonNode rules) {
         if(!rules.isObject()||!rules.path("rules").isArray()||rules.path("rules").isEmpty()||rules.path("rules").size()>100)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Policy must contain 1–100 rules in a rules array");
