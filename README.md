@@ -53,7 +53,7 @@ TRUSTLENS is a hackathon prototype for secure campus document exchange. It combi
 - `frontend/` — React, TypeScript, Vite
 - `database/` — database notes
 - `api-contract/` — OpenAPI contract
-- `docs/` — architecture, threat model, setup, deployment, roadmap
+- `docs/` — architecture, threat model, setup, deployment, identity/MFA workflow and roadmap
 - `security-tests/` — security test plan
 
 ## Fetching and switching branches
@@ -274,6 +274,10 @@ npm run dev
 Open http://localhost:5173.
 
 Demo seeding is disabled by default. Use only a disposable local database and synthetic data. Never enable demo seeding in a shared or deployed environment.
+
+## Identity and MFA setup
+
+See [docs/IDENTITY-AND-MFA.md](docs/IDENTITY-AND-MFA.md) for the faculty approval flow, first-admin bootstrap, MFA enrollment/login sequence, recovery codes and account disablement behavior.
 
 ## API highlights
 
