@@ -57,7 +57,8 @@ export type Health = { status: string; service: string; timestamp: string };
 export type CurrentUser = { authenticated: boolean; username: string; authorities: string[] };
 export type DocumentItem = {
   id: string; title: string; department: string; classification: string;
-  status: string; created_at: string; owner: string;
+  status: string; created_at: string; owner: string; ownerUsername?: string;
+  description?: string; tags?: string[]; required_clearance?: number;
 };
 export type DecisionItem = {
   id: string; action: string; outcome: 'ALLOW' | 'DENY'; reasonCode: string;
