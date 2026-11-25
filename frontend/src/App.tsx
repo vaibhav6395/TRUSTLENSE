@@ -83,9 +83,9 @@ function Login({ onLogin, onAuthenticated }: {
       <p>{challenge.mfaEnrollmentRequired ? 'Secure your account by enrolling an authenticator app before continuing.' : 'Enter the current six-digit code from your authenticator app.'}</p>
       {setup && <div className="notice"><div><strong>Authenticator setup</strong><p>Add TRUSTLENS to an authenticator app using this setup key:</p><code>{setup.secret}</code><p className="footnote">Keep this key private. It will not be shown again after enrollment.</p></div></div>}
       <form onSubmit={submitMfa}>
-        <label>Six-digit authenticator code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={e=>setCode(e.target.value)} required/></label>
+        <label>Authenticator code or 16-character recovery code<input inputMode="text" autoComplete="one-time-code" maxLength={16} value={code} onChange={e=>setCode(e.target.value.toUpperCase())} required/></label>
         {error && <div className="connection-notice"><ShieldAlert size={15}/>{error}</div>}
-        <button className="primary full" disabled={busy || code.length!==6}>{busy?'Verifying…':'Verify and continue'} <ArrowUpRight size={16}/></button>
+        <button className="primary full" disabled={busy || (code.length!==6 && code.length!==16)}>{busy?'Verifying…':'Verify and continue'} <ArrowUpRight size={16}/></button>
         <button type="button" className="secondary full" onClick={backToLogin}>Back to sign in</button>
       </form>
     </> : mode==='signin' ? <>
