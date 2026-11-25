@@ -71,7 +71,8 @@ export type AuditItem = {
 
 export type GrantItem = {
   id: string; document: string; subject: string; permission: string;
-  expiresAt: string | null; revokedAt: string | null;
+  expiresAt: string | null; revokedAt: string | null; purpose?: string;
+  maxDownloads?: number | null; downloadCount?: number; startsAt?: string; createdBy?: string;
 };
 
 
