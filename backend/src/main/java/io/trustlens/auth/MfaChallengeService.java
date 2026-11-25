@@ -46,9 +46,15 @@ public class MfaChallengeService {
         return new Setup(secret, totp.provisioningUri(secret, username, "TRUSTLENS"));
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public void verify(String token, String code, String username) {
         Map<String,Object> challenge = findChallenge(token, null, username);
+        jdbc.update("UPDATE auth_mfa_challenges SET attempts=attempts+1 WHERE id=?", challenge.get("id"));
+        Integer attempts = jdbc.queryForObject("SELECT attempts FROM auth_mfa_challenges WHERE id=?", Integer.class, challenge.get("id"));
+        if (attempts != null && attempts >= 5) {
+            jdbc.update("DELETE FROM auth_mfa_challenges WHERE id=?", challenge.get("id"));
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many MFA attempts. Start sign-in again.");
+        }
         String purpose = (String) challenge.get("purpose");
         String encrypted;
         if ("ENROLL".equals(purpose)) encrypted = (String) challenge.get("pending_secret_encrypted");
